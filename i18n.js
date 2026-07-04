@@ -40,6 +40,8 @@ const exactText = {
   "Event or Group Notes": "活动或团队备注",
   "Restock Suggestions": "补货建议",
   "Version History": "版本记录",
+  "Executor": "执行人",
+  "Select Executor": "选择执行人",
   "Menu Check": "菜单检查",
   "Choose breakfast, dinner, or event menu to start checking.": "选择早餐、晚餐或团餐后开始检查。",
   "Reset Today's Check": "重置今日检查",

@@ -1,10 +1,10 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Kitchen Stock Management</title>
-    <link rel="stylesheet" href="styles.css?v=0.10.1" />
+    <link rel="stylesheet" href="styles.css?v=0.10.8" />
   </head>
   <body>
     <main class="app-shell">
@@ -14,9 +14,22 @@
             <img class="brand-mark" src="assets/tinto-logo.jpg" alt="Tinto Hotel" />
             <div>
               <p class="eyebrow">Tinto Hotel Kitchen Stock</p>
-              <h1><span id="appTitle">Kitchen Stock Management</span> <span class="version-badge" id="appVersion">v0.10.1</span></h1>
+              <h1><span id="appTitle">Kitchen Stock Management</span> <span class="version-badge" id="appVersion">v0.10.8</span></h1>
             </div>
           </div>
+        </div>
+        <div class="topbar-executor">
+          <label class="field-label" for="executorInput">Executor</label>
+          <select id="executorInput">
+            <option value=""></option>
+            <option>Aiden</option>
+            <option>Alex</option>
+            <option>Carla</option>
+            <option>Kristian</option>
+            <option>Lukasz</option>
+            <option>Sarah</option>
+            <option>Stevie</option>
+          </select>
         </div>
         <div class="top-actions">
           <button class="ghost-button" id="languageToggleButton" type="button">中文</button>
@@ -34,30 +47,30 @@
       </nav>
 
       <section class="summary-grid" aria-label="Inventory Overview">
-        <article>
+        <button class="summary-card" type="button" data-summary-type="all">
           <span>Total Items</span>
           <strong id="totalCount">0</strong>
-        </article>
-        <article>
+        </button>
+        <button class="summary-card" type="button" data-summary-type="soon">
           <span>Expiring Soon</span>
           <strong id="soonCount">0</strong>
-        </article>
-        <article>
+        </button>
+        <button class="summary-card" type="button" data-summary-type="low">
           <span>Low Stock</span>
           <strong id="lowCount">0</strong>
-        </article>
-        <article>
+        </button>
+        <button class="summary-card" type="button" data-summary-type="orders">
           <span>Open Orders</span>
           <strong id="orderCount">0</strong>
-        </article>
-        <article>
+        </button>
+        <button class="summary-card" type="button" data-summary-type="tracked">
           <span>Tracked Items</span>
           <strong id="trackedCount">0</strong>
-        </article>
-        <article>
+        </button>
+        <button class="summary-card" type="button" data-summary-type="menu">
           <span>Menu Shortage</span>
           <strong id="menuMissingCount">0</strong>
-        </article>
+        </button>
       </section>
 
       <section class="workspace">
@@ -124,7 +137,7 @@
           <div class="version-panel">
             <h2>Version History</h2>
             <ul id="versionList">
-              <li><strong>v0.10.1</strong><span>Added duplicate order detection and merge prompts for shared items across departments.</span></li>
+              <li><strong>v0.10.8</strong><span>Moved executor selection into the top bar, required it before operations, and reset it after printing. / 将执行人移到顶部、设为操作前必选项，并在打印后清空。</span></li>
               <li><strong>v0.10.0</strong><span>Added Chinese/English language switching so the same system can be previewed in either language.</span></li>
               <li><strong>v0.9.2</strong><span>Converted the interface, dialogs, menu checks, and report preview to English.</span></li>
               <li><strong>v0.9.1</strong><span>Added Tinto Hotel branding and a black-gold visual theme.</span></li>
@@ -212,6 +225,19 @@
         </section>
       </section>
     </main>
+
+    <dialog id="summaryDialog">
+      <div class="summary-dialog">
+        <div class="dialog-header">
+          <div>
+            <h2 id="summaryDialogTitle">Details</h2>
+            <p id="summaryDialogSubtitle"></p>
+          </div>
+          <button class="icon-button" type="button" id="closeSummaryDialogButton" aria-label="Close">&times;</button>
+        </div>
+        <div class="summary-dialog-list" id="summaryDialogList"></div>
+      </div>
+    </dialog>
 
     <dialog id="itemDialog">
       <form method="dialog" id="itemForm">

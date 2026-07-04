@@ -86,6 +86,7 @@ dialog {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
   gap: 16px;
   padding: 20px 22px;
   border-radius: 8px;
@@ -178,6 +179,24 @@ h2 {
   font-size: 1.08rem;
 }
 
+.topbar-executor {
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.topbar-executor .field-label {
+  color: #f0e2a3;
+}
+
+.topbar-executor select {
+  width: 100%;
+  min-height: 40px;
+  border-color: rgba(215, 195, 115, 0.58);
+  background: rgba(255, 253, 247, 0.96);
+  color: var(--ink);
+}
+
 .top-actions,
 .dialog-actions,
 .section-header,
@@ -252,21 +271,49 @@ h2 {
   margin: 18px 0;
 }
 
-.summary-grid article {
+.summary-card {
+  display: grid;
+  align-content: start;
+  gap: 0;
+  width: 100%;
+  cursor: pointer;
+  appearance: none;
   border-radius: 8px;
   padding: 16px;
+  border: 1px solid rgba(217, 208, 183, 0.92);
+  background: rgba(255, 255, 255, 0.93);
+  box-shadow: var(--shadow);
+  text-align: left;
 }
 
-.summary-grid span {
+.summary-card:hover,
+.summary-card:focus-visible {
+  border-color: rgba(177, 151, 46, 0.72);
+  box-shadow: 0 0 0 2px rgba(177, 151, 46, 0.18), var(--shadow);
+  transform: translateY(-1px);
+}
+
+.summary-card span {
   display: block;
   color: var(--muted);
   font-size: 0.88rem;
 }
 
-.summary-grid strong {
+.summary-card strong {
   display: block;
   margin-top: 8px;
   font-size: 2rem;
+}
+
+.summary-card[disabled] {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.summary-card[disabled]:hover,
+.summary-card[disabled]:focus-visible {
+  transform: none;
+  box-shadow: var(--shadow);
 }
 
 .workspace {
@@ -747,6 +794,47 @@ dialog {
 
 dialog::backdrop {
   background: rgba(19, 30, 25, 0.42);
+}
+
+.summary-dialog {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.summary-dialog-list {
+  display: grid;
+  gap: 10px;
+  max-height: min(68vh, 620px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.summary-detail-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.summary-detail-card strong {
+  color: var(--ink);
+}
+
+.summary-detail-card .detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.summary-empty {
+  padding: 18px;
+  text-align: center;
+  color: var(--muted);
 }
 
 #itemForm,

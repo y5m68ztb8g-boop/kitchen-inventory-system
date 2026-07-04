@@ -1,4 +1,4 @@
-﻿const APP_VERSION = "v0.10.1";
+const APP_VERSION = "v0.10.8";
 const STORAGE_KEY = "kitchen-inventory-v2";
 const LEGACY_KEY = "kitchen-inventory-v1";
 const categories = ["All", "Produce", "Meat / Dairy", "Dry Goods", "Seasoning", "Frozen", "Other"];
@@ -63,6 +63,11 @@ const elements = {
   orderCount: document.querySelector("#orderCount"),
   trackedCount: document.querySelector("#trackedCount"),
   menuMissingCount: document.querySelector("#menuMissingCount"),
+  summaryDialog: document.querySelector("#summaryDialog"),
+  summaryDialogTitle: document.querySelector("#summaryDialogTitle"),
+  summaryDialogSubtitle: document.querySelector("#summaryDialogSubtitle"),
+  summaryDialogList: document.querySelector("#summaryDialogList"),
+  closeSummaryDialogButton: document.querySelector("#closeSummaryDialogButton"),
   searchInput: document.querySelector("#searchInput"),
   sortSelect: document.querySelector("#sortSelect"),
   inventoryList: document.querySelector("#inventoryList"),
@@ -78,6 +83,7 @@ const elements = {
   stocktakeList: document.querySelector("#stocktakeList"),
   stocktakeEmptyState: document.querySelector("#stocktakeEmptyState"),
   defaultOrderedByInput: document.querySelector("#defaultOrderedByInput"),
+  executorInput: document.querySelector("#executorInput"),
   defaultPurposeInput: document.querySelector("#defaultPurposeInput"),
   defaultServiceDateInput: document.querySelector("#defaultServiceDateInput"),
   defaultEventNameInput: document.querySelector("#defaultEventNameInput"),
@@ -122,6 +128,7 @@ document.querySelector("#createOrdersButton").addEventListener("click", createOr
 document.querySelector("#clearReceivedButton").addEventListener("click", clearReceivedOrders);
 document.querySelector("#clearOldStocktakeButton").addEventListener("click", clearOldStocktakes);
 document.querySelector("#resetMenuCheckButton").addEventListener("click", resetMenuChecks);
+document.querySelector("#closeSummaryDialogButton").addEventListener("click", closeSummaryDialog);
 document.querySelector("#closeStocktakeDialogButton").addEventListener("click", closeStocktakeDialog);
 document.querySelector("#cancelStocktakeDialogButton").addEventListener("click", closeStocktakeDialog);
 elements.searchInput.addEventListener("input", render);
@@ -129,6 +136,12 @@ elements.sortSelect.addEventListener("change", render);
 elements.itemForm.addEventListener("submit", saveItem);
 elements.stocktakeForm.addEventListener("submit", saveStocktake);
 elements.defaultServiceDateInput.value = offsetDate(0);
+elements.defaultOrderedByInput.readOnly = true;
+elements.executorInput.value = "";
+elements.defaultOrderedByInput.value = "";
+elements.executorInput.addEventListener("change", () => {
+  elements.defaultOrderedByInput.value = elements.executorInput.value;
+});
 
 document.querySelectorAll(".chip").forEach((button) => {
   button.addEventListener("click", () => {
@@ -146,6 +159,12 @@ document.querySelectorAll(".menu-nav button").forEach((button) => {
   });
 });
 
+document.querySelectorAll(".summary-card").forEach((button) => {
+  button.addEventListener("click", () => {
+    openSummaryDialog(button.dataset.summaryType);
+  });
+});
+
 render();
 
 function setActiveMenu(menuType) {
@@ -159,6 +178,23 @@ function getActiveMenu() {
 
 function getActiveMenuItems(menuType = activeMenuType) {
   return menuCatalog[menuType]?.items || [];
+}
+
+
+function getCurrentExecutor() {
+  return elements.executorInput.value.trim();
+}
+
+function requireExecutor() {
+  if (getCurrentExecutor()) return true;
+  alert("Please select an executor first.");
+  elements.executorInput.focus();
+  return false;
+}
+
+function clearExecutorSelection() {
+  elements.executorInput.value = "";
+  elements.defaultOrderedByInput.value = "";
 }
 
 function createSampleItem(
@@ -360,6 +396,158 @@ function renderSummary() {
   elements.orderCount.textContent = activeOrders.length;
   elements.trackedCount.textContent = trackedItems.length;
   elements.menuMissingCount.textContent = missingIngredients.length;
+}
+
+function openSummaryDialog(summaryType) {
+  const summary = getSummaryDetails(summaryType);
+  if (!summary) return;
+
+  elements.summaryDialogTitle.textContent = summary.title;
+  elements.summaryDialogSubtitle.textContent = summary.subtitle;
+  elements.summaryDialogList.innerHTML = "";
+
+  if (summary.items.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "summary-empty";
+    empty.textContent = summary.emptyText;
+    elements.summaryDialogList.appendChild(empty);
+  } else {
+    summary.items.forEach((entry) => {
+      const card = document.createElement("article");
+      card.className = "summary-detail-card";
+      card.innerHTML = entry.html;
+      elements.summaryDialogList.appendChild(card);
+    });
+  }
+
+  elements.summaryDialog.showModal();
+}
+
+function closeSummaryDialog() {
+  elements.summaryDialog.close();
+}
+
+function getSummaryDetails(summaryType) {
+  const soonItems = state.items
+    .filter((item) => getDaysLeft(item.expiry) <= 7)
+    .sort((a, b) => getDaysLeft(a.expiry) - getDaysLeft(b.expiry));
+  const lowItems = getLowItems().slice().sort((a, b) => Number(a.quantity) - Number(b.quantity));
+  const activeOrders = state.orders.filter((order) => order.status !== "received");
+  const trackedItems = state.items.filter((item) => item.trackingType !== "Standard");
+  const missingIngredients = getMissingMenuIngredients();
+
+  if (summaryType === "all") {
+    return {
+      title: "All Items",
+      subtitle: "Full inventory list",
+      emptyText: "No items available.",
+      items: state.items.map((item) => ({
+        html: `
+          <strong>${escapeHtml(item.name)}</strong>
+          <div class="detail-meta">
+            <span>${formatNumber(item.quantity)} ${escapeHtml(item.unit)}</span>
+            <span>${escapeHtml(item.category)}</span>
+            <span>${escapeHtml(item.supplier)}</span>
+            <span>${escapeHtml(item.location || "Not Set")}</span>
+          </div>
+        `,
+      })),
+    };
+  }
+
+  if (summaryType === "soon") {
+    return {
+      title: "Expiring Soon",
+      subtitle: "Items due in 7 days or less",
+      emptyText: "No items are expiring soon.",
+      items: soonItems.map((item) => ({
+        html: `
+          <strong>${escapeHtml(item.name)}</strong>
+          <div class="detail-meta">
+            <span>${escapeHtml(item.expiry)}</span>
+            <span>${getDaysLeft(item.expiry)} days left</span>
+            <span>${formatNumber(item.quantity)} ${escapeHtml(item.unit)}</span>
+            <span>${escapeHtml(item.supplier)}</span>
+          </div>
+        `,
+      })),
+    };
+  }
+
+  if (summaryType === "low") {
+    return {
+      title: "Low Stock",
+      subtitle: "Items at or below the reorder line",
+      emptyText: "No items are low on stock.",
+      items: lowItems.map((item) => ({
+        html: `
+          <strong>${escapeHtml(item.name)}</strong>
+          <div class="detail-meta">
+            <span>${formatNumber(item.quantity)} ${escapeHtml(item.unit)}</span>
+            <span>Line ${formatNumber(item.threshold)} ${escapeHtml(item.unit)}</span>
+            <span>${escapeHtml(item.supplier)}</span>
+            <span>${escapeHtml(item.location || "Not Set")}</span>
+          </div>
+        `,
+      })),
+    };
+  }
+
+  if (summaryType === "orders") {
+    return {
+      title: "Open Orders",
+      subtitle: "Orders not yet received",
+      emptyText: "No open orders.",
+      items: activeOrders.map((order) => ({
+        html: `
+          <strong>${escapeHtml(order.itemName)}</strong>
+          <div class="detail-meta">
+            <span>${formatNumber(order.quantity)} ${escapeHtml(order.unit)}</span>
+            <span>${escapeHtml(order.purpose || "Routine Restock")}</span>
+            <span>${escapeHtml(order.orderedBy || "Not Set")}</span>
+            <span>${escapeHtml(order.dueDate)}</span>
+          </div>
+        `,
+      })),
+    };
+  }
+
+  if (summaryType === "tracked") {
+    return {
+      title: "Tracked Items",
+      subtitle: "Event-only and high-value items",
+      emptyText: "No tracked items.",
+      items: trackedItems.map((item) => ({
+        html: `
+          <strong>${escapeHtml(item.name)}</strong>
+          <div class="detail-meta">
+            <span>${escapeHtml(item.trackingType)}</span>
+            <span>${escapeHtml(item.stocktakeCycle)}</span>
+            <span>${escapeHtml(item.supplier)}</span>
+            <span>${formatNumber(item.quantity)} ${escapeHtml(item.unit)}</span>
+          </div>
+        `,
+      })),
+    };
+  }
+
+  if (summaryType === "menu") {
+    return {
+      title: "Menu Shortage",
+      subtitle: "Ingredients marked missing in the selected menu check",
+      emptyText: "No menu shortages.",
+      items: missingIngredients.map((entry) => ({
+        html: `
+          <strong>${escapeHtml(entry.ingredient)}</strong>
+          <div class="detail-meta">
+            <span>${escapeHtml(entry.dish)}</span>
+          </div>
+        `,
+      })),
+    };
+  }
+
+  return null;
 }
 
 function renderMenuChecklist() {
@@ -621,6 +809,7 @@ function getMissingMenuIngredients(menuType = activeMenuType) {
 }
 
 function handleMenuCheckAction(event) {
+  if (!requireExecutor()) return;
   const { action, menuType, dish, ingredient } = event.currentTarget.dataset;
   const key = getMenuCheckKey(menuType, dish, ingredient);
   state.menuChecks[key] = action === "menuMissing" ? "missing" : "ok";
@@ -665,6 +854,7 @@ function markIngredientOutOfStock(ingredient, dish) {
 }
 
 function resetMenuChecks() {
+  if (!requireExecutor()) return;
   if (!activeMenuType) return;
   const todayPrefix = `${offsetDate(0)}::${activeMenuType}::`;
   Object.keys(state.menuChecks).forEach((key) => {
@@ -782,6 +972,7 @@ function mergeDuplicateOrder(orderId) {
 }
 
 function handleItemAction(event) {
+  if (!requireExecutor()) return;
   const { action, id } = event.currentTarget.dataset;
   const item = state.items.find((entry) => entry.id === id);
   if (!item) return;
@@ -809,6 +1000,7 @@ function handleItemAction(event) {
 }
 
 function handleStocktakeAction(event) {
+  if (!requireExecutor()) return;
   const { action, id } = event.currentTarget.dataset;
   const stocktake = state.stocktakes.find((entry) => entry.id === id);
   if (!stocktake) return;
@@ -822,6 +1014,7 @@ function handleStocktakeAction(event) {
 }
 
 function handleOrderAction(event) {
+  if (!requireExecutor()) return;
   const { action, id } = event.currentTarget.dataset;
   const order = state.orders.find((entry) => entry.id === id);
   if (!order) return;
@@ -897,6 +1090,7 @@ function addOrderForItem(item) {
 }
 
 function createOrdersFromLowStock() {
+  if (!requireExecutor()) return;
   getLowItems().forEach(addOrderForItem);
 }
 
@@ -913,7 +1107,7 @@ function createOrder(item) {
     status: "draft",
     createdAt: offsetDate(0),
     dueDate: offsetDate(Number(item.leadDays || 1)),
-    orderedBy: elements.defaultOrderedByInput.value.trim(),
+    orderedBy: getCurrentExecutor(),
     purpose: elements.defaultPurposeInput.value,
     serviceDate: elements.defaultServiceDateInput.value || offsetDate(0),
     eventName: elements.defaultEventNameInput.value.trim(),
@@ -921,6 +1115,7 @@ function createOrder(item) {
 }
 
 function clearReceivedOrders() {
+  if (!requireExecutor()) return;
   state.orders = state.orders.filter((order) => order.status !== "received");
   persist();
   render();
@@ -932,7 +1127,7 @@ function openStocktakeDialog(item) {
   elements.stocktakeDialogTitle.textContent = `Record Stocktake: ${item.name}`;
   elements.actualQuantityInput.value = item.quantity;
   elements.stocktakeUnitInput.value = item.unit;
-  elements.countedByInput.value = elements.defaultOrderedByInput.value.trim();
+  elements.countedByInput.value = getCurrentExecutor();
   elements.stocktakeTypeInput.value = item.stocktakeCycle || "Weekly";
   elements.stocktakeDateInput.value = offsetDate(0);
   elements.stocktakeReasonInput.value = item.trackingType === "Event Only" ? "Event use" : "";
@@ -945,6 +1140,7 @@ function closeStocktakeDialog() {
 
 function saveStocktake(event) {
   event.preventDefault();
+  if (!requireExecutor()) return;
 
   const item = state.items.find((entry) => entry.id === elements.stocktakeItemId.value);
   if (!item) return;
@@ -979,6 +1175,7 @@ function saveStocktake(event) {
 }
 
 function clearOldStocktakes() {
+  if (!requireExecutor()) return;
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 90);
   cutoff.setHours(0, 0, 0, 0);
@@ -988,6 +1185,7 @@ function clearOldStocktakes() {
 }
 
 function openAddDialog() {
+  if (!requireExecutor()) return;
   editingId = null;
   elements.dialogTitle.textContent = "Add Item";
   elements.itemForm.reset();
@@ -1032,6 +1230,7 @@ function openEditDialog(item) {
 
 function saveItem(event) {
   event.preventDefault();
+  if (!requireExecutor()) return;
 
   const nextItem = {
     id: editingId || createId(),
@@ -1075,6 +1274,7 @@ function saveItem(event) {
 }
 
 function restoreSamples() {
+  if (!requireExecutor()) return;
   state = {
     items: sampleItems.map((item) => ({ ...item, id: createId() })),
     orders: [],
@@ -1086,6 +1286,7 @@ function restoreSamples() {
 }
 
 function exportData() {
+  if (!requireExecutor()) return;
   const exportPayload = {
     appVersion: APP_VERSION,
     exportedAt: new Date().toISOString(),
@@ -1101,6 +1302,7 @@ function exportData() {
 }
 
 function printDailyReport() {
+  if (!requireExecutor()) return;
   const html = buildDailyReportHtml();
   const blob = new Blob([html], { type: "text/html;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -1110,6 +1312,7 @@ function printDailyReport() {
     alert("The browser blocked the print window. Please allow pop-ups and try again.");
     return;
   }
+  clearExecutorSelection();
   window.setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
