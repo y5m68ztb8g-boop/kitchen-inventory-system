@@ -1,0 +1,380 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kitchen Stock Management</title>
+    <link rel="stylesheet" href="styles.css?v=0.10.1" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <div class="brand-heading">
+            <img class="brand-mark" src="assets/tinto-logo.jpg" alt="Tinto Hotel" />
+            <div>
+              <p class="eyebrow">Tinto Hotel Kitchen Stock</p>
+              <h1><span id="appTitle">Kitchen Stock Management</span> <span class="version-badge" id="appVersion">v0.10.1</span></h1>
+            </div>
+          </div>
+        </div>
+        <div class="top-actions">
+          <button class="ghost-button" id="languageToggleButton" type="button">中文</button>
+          <button class="ghost-button" id="printReportButton">Print Report</button>
+          <button class="icon-button" id="exportButton" title="Export Data" aria-label="Export Data">&#8595;</button>
+          <button class="primary-button" id="openAddButton">Add Item</button>
+        </div>
+      </header>
+
+      <nav class="menu-nav" aria-label="Menu Check Switch">
+        <button type="button" data-menu-type="dinner">Dinner Check</button>
+        <button type="button" data-menu-type="breakfast">Breakfast Check</button>
+        <button type="button" data-menu-type="event">Event Menu Check</button>
+        <button type="button" data-menu-type="none">Close Check</button>
+      </nav>
+
+      <section class="summary-grid" aria-label="Inventory Overview">
+        <article>
+          <span>Total Items</span>
+          <strong id="totalCount">0</strong>
+        </article>
+        <article>
+          <span>Expiring Soon</span>
+          <strong id="soonCount">0</strong>
+        </article>
+        <article>
+          <span>Low Stock</span>
+          <strong id="lowCount">0</strong>
+        </article>
+        <article>
+          <span>Open Orders</span>
+          <strong id="orderCount">0</strong>
+        </article>
+        <article>
+          <span>Tracked Items</span>
+          <strong id="trackedCount">0</strong>
+        </article>
+        <article>
+          <span>Menu Shortage</span>
+          <strong id="menuMissingCount">0</strong>
+        </article>
+      </section>
+
+      <section class="workspace">
+        <aside class="side-panel">
+          <div class="search-box">
+            <span aria-hidden="true">&#128269;</span>
+            <input id="searchInput" type="search" placeholder="Search item, supplier, location, or notes" />
+          </div>
+
+          <div class="filter-group" aria-label="Category Filter">
+            <button class="chip active" data-category="All">All</button>
+            <button class="chip" data-category="Produce">Produce</button>
+            <button class="chip" data-category="Meat / Dairy">Meat / Dairy</button>
+            <button class="chip" data-category="Dry Goods">Dry Goods</button>
+            <button class="chip" data-category="Seasoning">Seasoning</button>
+            <button class="chip" data-category="Frozen">Frozen</button>
+            <button class="chip" data-category="Other">Other</button>
+          </div>
+
+          <label class="field-label" for="sortSelect">Sort</label>
+          <select id="sortSelect">
+            <option value="expiry">Expiry Date</option>
+            <option value="quantity">Quantity</option>
+            <option value="supplier">Supplier</option>
+            <option value="name">Name</option>
+          </select>
+
+          <div class="order-context-panel">
+            <h2>Order Details</h2>
+            <label>
+              Ordered By
+              <input id="defaultOrderedByInput" maxlength="20" placeholder="e.g. Chef Li" />
+            </label>
+            <label>
+              Purpose
+              <select id="defaultPurposeInput">
+                <option value="Tomorrow Breakfast">Tomorrow Breakfast</option>
+                <option value="Tomorrow Dinner">Tomorrow Dinner</option>
+                <option value="Routine Restock">Routine Restock</option>
+                <option value="Wedding Event">Wedding Event</option>
+                <option value="Tour Group">Tour Group</option>
+                <option value="Conference Event">Conference Event</option>
+                <option value="Other Event">Other Event</option>
+              </select>
+            </label>
+            <label>
+              Service / Event Date
+              <input id="defaultServiceDateInput" type="date" />
+            </label>
+            <label>
+              Event or Group Notes
+              <input id="defaultEventNameInput" maxlength="36" placeholder="e.g. Smith Wedding / Tour Group" />
+            </label>
+          </div>
+
+          <div class="shopping-panel">
+            <div class="panel-title">
+              <h2>Restock Suggestions</h2>
+              <button id="createOrdersButton" title="Create Supplier Orders" aria-label="Create Supplier Orders">+</button>
+            </div>
+            <ul id="shoppingList"></ul>
+          </div>
+
+          <div class="version-panel">
+            <h2>Version History</h2>
+            <ul id="versionList">
+              <li><strong>v0.10.1</strong><span>Added duplicate order detection and merge prompts for shared items across departments.</span></li>
+              <li><strong>v0.10.0</strong><span>Added Chinese/English language switching so the same system can be previewed in either language.</span></li>
+              <li><strong>v0.9.2</strong><span>Converted the interface, dialogs, menu checks, and report preview to English.</span></li>
+              <li><strong>v0.9.1</strong><span>Added Tinto Hotel branding and a black-gold visual theme.</span></li>
+              <li><strong>v0.9.0</strong><span>Added breakfast, dinner, and event menu check switching; menu checks are hidden by default.</span></li>
+              <li><strong>v0.8.1</strong><span>Fixed the blank page issue when opening print reports.</span></li>
+              <li><strong>v0.8.0</strong><span>Added a daily kitchen report for kitchen, front of house, and management printing.</span></li>
+              <li><strong>v0.7.1</strong><span>Fixed missing default state when loading menu checks for the first time.</span></li>
+              <li><strong>v0.7.0</strong><span>Added dinner menu checks with shortage links to inventory and restock suggestions.</span></li>
+              <li><strong>v0.6.3</strong><span>Fixed mobile dialog buttons being covered by content.</span></li>
+              <li><strong>v0.6.2</strong><span>Fixed unresponsive buttons on mobile LAN access.</span></li>
+              <li><strong>v0.6.1</strong><span>Fixed stocktake save being blocked by the counted-by field.</span></li>
+              <li><strong>v0.6.0</strong><span>Changed to weekly/monthly stocktake mode with tracked items and receiver records.</span></li>
+              <li><strong>v0.5.0</strong><span>Tested usage/outgoing records, then adjusted to stocktake mode for the real kitchen flow.</span></li>
+              <li><strong>v0.4.1</strong><span>Added version number and version history.</span></li>
+              <li><strong>v0.4.0</strong><span>Added order ownership: ordered by, purpose, event date, and group notes.</span></li>
+              <li><strong>v0.3.0</strong><span>Added restock website shortcuts for Campbells Meat and Brakes.</span></li>
+              <li><strong>v0.2.1</strong><span>Fixed the add-item dialog not closing directly.</span></li>
+              <li><strong>v0.2.0</strong><span>Added supplier orders, placing orders, receiving, and inventory sync.</span></li>
+              <li><strong>v0.1.0</strong><span>Created kitchen inventory, categories, expiry alerts, and low-stock alerts.</span></li>
+            </ul>
+          </div>
+        </aside>
+
+        <section class="content-stack">
+          <section class="menu-area" id="menuArea" hidden>
+            <div class="section-header">
+              <div>
+                <h2 id="menuCheckTitle">Menu Check</h2>
+                <p id="menuCheckDescription">Choose breakfast, dinner, or event menu to start checking.</p>
+              </div>
+              <button class="ghost-button" id="resetMenuCheckButton">Reset Today's Check</button>
+            </div>
+            <div class="empty-state compact" id="menuEmptyState" hidden>
+              <strong>This menu has not been imported yet</strong>
+              <span>Once you provide the breakfast or event menu, I will add the fixed checks here.</span>
+            </div>
+            <div class="menu-list" id="menuList"></div>
+          </section>
+
+          <section class="inventory-area">
+            <div class="section-header">
+              <div>
+                <h2>Current Inventory</h2>
+                <p id="resultHint">Items are marked by expiry and low stock; supplier details help with quick ordering.</p>
+              </div>
+              <button class="ghost-button" id="seedButton">Restore Samples</button>
+            </div>
+
+            <div class="inventory-list" id="inventoryList"></div>
+            <div class="empty-state" id="emptyState" hidden>
+              <strong>No matching items</strong>
+              <span>Try changing the search, or add a kitchen stock item.</span>
+            </div>
+          </section>
+
+          <section class="orders-area">
+            <div class="section-header">
+              <div>
+                <h2>Supplier Orders</h2>
+                <p>Low-stock items can create orders automatically; receiving updates inventory.</p>
+              </div>
+              <button class="ghost-button" id="clearReceivedButton">Clear Received</button>
+            </div>
+            <div class="order-list" id="orderList"></div>
+            <div class="empty-state compact" id="orderEmptyState" hidden>
+              <strong>No supplier orders</strong>
+              <span>Click the plus beside a restock suggestion to create an order.</span>
+            </div>
+          </section>
+
+          <section class="stocktake-area">
+            <div class="section-header">
+              <div>
+                <h2>Stocktake Records</h2>
+                <p>Use weekly and monthly stocktakes to correct inventory; track valuable and event-only items.</p>
+              </div>
+              <button class="ghost-button" id="clearOldStocktakeButton">Keep Last 90 Days</button>
+            </div>
+            <div class="stocktake-list" id="stocktakeList"></div>
+            <div class="empty-state compact" id="stocktakeEmptyState" hidden>
+              <strong>No stocktake records</strong>
+              <span>Click Stocktake on an inventory card to correct the actual quantity.</span>
+            </div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <dialog id="itemDialog">
+      <form method="dialog" id="itemForm">
+        <div class="dialog-header">
+          <h2 id="dialogTitle">Add Item</h2>
+          <button class="icon-button" type="button" id="closeDialogButton" aria-label="Close">&times;</button>
+        </div>
+
+        <input type="hidden" id="itemId" />
+        <label>
+          Item Name
+          <input id="nameInput" required maxlength="24" placeholder="e.g. Eggs" />
+        </label>
+        <div class="form-row">
+          <label>
+            Quantity
+            <input id="quantityInput" required type="number" min="0" step="0.1" />
+          </label>
+          <label>
+            Unit
+            <input id="unitInput" required maxlength="8" placeholder="pcs / bag / g" />
+          </label>
+        </div>
+        <div class="form-row">
+          <label>
+            Category
+            <select id="categoryInput">
+              <option>Produce</option>
+              <option>Meat / Dairy</option>
+              <option>Dry Goods</option>
+              <option>Seasoning</option>
+              <option>Frozen</option>
+              <option>Other</option>
+            </select>
+          </label>
+          <label>
+            Storage Location
+            <input id="locationInput" maxlength="18" placeholder="Fridge / Cupboard" />
+          </label>
+        </div>
+        <div class="form-row">
+          <label>
+            Tracking Type
+            <select id="trackingTypeInput">
+              <option value="Standard">Standard</option>
+              <option value="High Value / Bulk">High Value / Bulk</option>
+              <option value="Event Only">Event Only</option>
+            </select>
+          </label>
+          <label>
+            Stocktake Frequency
+            <select id="stocktakeCycleInput">
+              <option value="Weekly">Weekly</option>
+              <option value="Monthly">Monthly</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>
+            Supplier
+            <input id="supplierInput" maxlength="24" placeholder="e.g. Local Supplier" />
+          </label>
+          <label>
+            Ordering Website
+            <select id="supplierSiteInput">
+              <option value="campbells">Campbells Meat</option>
+              <option value="brakes">Brakes</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>
+            Product Link
+            <input id="productUrlInput" type="url" placeholder="https://www.campbellsmeat.com/..." />
+          </label>
+          <label>
+            Lead Time
+            <input id="leadDaysInput" required type="number" min="0" step="1" />
+          </label>
+        </div>
+        <div class="form-row">
+          <label>
+            Expiry Date
+            <input id="expiryInput" required type="date" />
+          </label>
+          <label>
+            Low-Stock Line
+            <input id="thresholdInput" required type="number" min="0" step="0.1" />
+          </label>
+        </div>
+        <label>
+          Notes
+          <textarea id="noteInput" rows="3" maxlength="90" placeholder="Brand, purpose, or opened date"></textarea>
+        </label>
+
+        <div class="dialog-actions">
+          <button class="ghost-button" type="button" id="cancelDialogButton">Cancel</button>
+          <button class="primary-button" id="saveButton" value="default">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="stocktakeDialog">
+      <form method="dialog" id="stocktakeForm">
+        <div class="dialog-header">
+          <h2 id="stocktakeDialogTitle">Record Stocktake</h2>
+          <button class="icon-button" type="button" id="closeStocktakeDialogButton" aria-label="Close">&times;</button>
+        </div>
+
+        <input type="hidden" id="stocktakeItemId" />
+        <div class="form-row">
+          <label>
+            Actual Quantity
+            <input id="actualQuantityInput" required type="number" min="0" step="0.1" />
+          </label>
+          <label>
+            Unit
+            <input id="stocktakeUnitInput" readonly />
+          </label>
+        </div>
+        <div class="form-row">
+          <label>
+            Counted By
+            <input id="countedByInput" maxlength="20" placeholder="e.g. Anna" />
+          </label>
+          <label>
+            Stocktake Type
+            <select id="stocktakeTypeInput">
+              <option value="Weekly">Weekly</option>
+              <option value="Monthly">Monthly</option>
+              <option value="Ad Hoc">Ad Hoc</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>
+            Stocktake Date
+            <input id="stocktakeDateInput" required type="date" />
+          </label>
+          <label>
+            Difference Reason
+            <input id="stocktakeReasonInput" maxlength="36" placeholder="e.g. Normal use / Event use" />
+          </label>
+        </div>
+        <label>
+          Notes
+          <textarea id="stocktakeNoteInput" rows="3" maxlength="90" placeholder="Stocktake notes or follow-up issues"></textarea>
+        </label>
+
+        <div class="dialog-actions">
+          <button class="ghost-button" type="button" id="cancelStocktakeDialogButton">Cancel</button>
+          <button class="primary-button" id="saveStocktakeButton" value="default">Save Stocktake</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="app.js?v=0.10.1"></script>
+    <script src="i18n.js?v=0.10.1"></script>
+  </body>
+</html>
+
+
+
+
+

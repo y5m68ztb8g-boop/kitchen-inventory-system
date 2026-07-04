@@ -1,0 +1,6 @@
+preview*.png
+*.log
+.agents/
+LOCAL_AI_README.md
+ask-local-ai.bat
+start-local-ai.bat
