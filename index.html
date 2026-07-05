@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Kitchen Stock Management</title>
-    <link rel="stylesheet" href="styles.css?v=0.10.8" />
+    <link rel="stylesheet" href="styles.css?v=0.10.16" />
   </head>
   <body>
     <main class="app-shell">
@@ -14,22 +14,13 @@
             <img class="brand-mark" src="assets/tinto-logo.jpg" alt="Tinto Hotel" />
             <div>
               <p class="eyebrow">Tinto Hotel Kitchen Stock</p>
-              <h1><span id="appTitle">Kitchen Stock Management</span> <span class="version-badge" id="appVersion">v0.10.8</span></h1>
+              <h1><span id="appTitle">Kitchen Stock Management</span> <span class="version-badge" id="appVersion">v0.10.16</span></h1>
             </div>
           </div>
         </div>
         <div class="topbar-executor">
           <label class="field-label" for="executorInput">Executor</label>
-          <select id="executorInput">
-            <option value=""></option>
-            <option>Aiden</option>
-            <option>Alex</option>
-            <option>Carla</option>
-            <option>Kristian</option>
-            <option>Lukasz</option>
-            <option>Sarah</option>
-            <option>Stevie</option>
-          </select>
+          <select id="executorInput"></select>
         </div>
         <div class="top-actions">
           <button class="ghost-button" id="languageToggleButton" type="button">中文</button>
@@ -84,9 +75,14 @@
             <button class="chip active" data-category="All">All</button>
             <button class="chip" data-category="Produce">Produce</button>
             <button class="chip" data-category="Meat / Dairy">Meat / Dairy</button>
+            <button class="chip" data-category="Fish / Seafood">Fish / Seafood</button>
+            <button class="chip" data-category="Bakery / Bread">Bakery / Bread</button>
             <button class="chip" data-category="Dry Goods">Dry Goods</button>
             <button class="chip" data-category="Seasoning">Seasoning</button>
             <button class="chip" data-category="Frozen">Frozen</button>
+            <button class="chip" data-category="Beverages">Beverages</button>
+            <button class="chip" data-category="Consumables">Consumables</button>
+            <button class="chip" data-category="Cleaning Supplies">Cleaning Supplies</button>
             <button class="chip" data-category="Other">Other</button>
           </div>
 
@@ -106,15 +102,7 @@
             </label>
             <label>
               Purpose
-              <select id="defaultPurposeInput">
-                <option value="Tomorrow Breakfast">Tomorrow Breakfast</option>
-                <option value="Tomorrow Dinner">Tomorrow Dinner</option>
-                <option value="Routine Restock">Routine Restock</option>
-                <option value="Wedding Event">Wedding Event</option>
-                <option value="Tour Group">Tour Group</option>
-                <option value="Conference Event">Conference Event</option>
-                <option value="Other Event">Other Event</option>
-              </select>
+              <select id="defaultPurposeInput"></select>
             </label>
             <label>
               Service / Event Date
@@ -137,7 +125,13 @@
           <div class="version-panel">
             <h2>Version History</h2>
             <ul id="versionList">
-              <li><strong>v0.10.8</strong><span>Moved executor selection into the top bar, required it before operations, and reset it after printing. / 将执行人移到顶部、设为操作前必选项，并在打印后清空。</span></li>
+              <li><strong>v0.10.16</strong><span>Removed the sample restore control and changed low-stock alerts so they activate only after an item has been stocktaken. / 移除恢复示例按钮，并将低库存预警改为物品至少盘点一次后才启用。</span></li>
+              <li><strong>v0.10.15</strong><span>Added invoice-backed cheese inventory items and restricted inventory item deletion to Alex and Stevie. / 补充发票里的奶酪类库存，并限制只有 Alex 和 Stevie 可以删除库存名目。</span></li>
+              <li><strong>v0.10.14</strong><span>Added invoice-backed core stock items for rapeseed oil, olive oil, butter, sauces, bouillon, chopped tomatoes, pastry, chips, and fries. / 补充发票里反复出现的菜籽油、橄榄油、黄油、酱料、浓缩汤底、碎番茄、酥皮、薯块和薯条等核心库存。</span></li>
+              <li><strong>v0.10.13</strong><span>Expanded high-frequency core stock items across meat, fish, oils, sauces, seasonings, and produce, with menu aliases for chicken breast, haddock, and seabass. / 扩充肉类、鱼类、油、酱料、调料和蔬菜等高频核心库存，并增加鸡胸肉、haddock、seabass 的菜单别名归并。</span></li>
+              <li><strong>v0.10.12</strong><span>Added haddock to the core fish inventory and bumped the catalog version. / 补充 haddock 到核心鱼类库存，并同步提升目录版本。</span></li>
+              <li><strong>v0.10.11</strong><span>Added more high-frequency inventory items such as chicken breast, sea bass, oils, and core seasonings. / 增加鸡胸肉、海鲈鱼、常用油和基础调料等高频库存名目。</span></li>
+              <li><strong>v0.10.10</strong><span>Split housekeeping into consumables and cleaning supplies, and expanded inventory categories. / ????????????????????????</span></li>
               <li><strong>v0.10.0</strong><span>Added Chinese/English language switching so the same system can be previewed in either language.</span></li>
               <li><strong>v0.9.2</strong><span>Converted the interface, dialogs, menu checks, and report preview to English.</span></li>
               <li><strong>v0.9.1</strong><span>Added Tinto Hotel branding and a black-gold visual theme.</span></li>
@@ -183,7 +177,6 @@
                 <h2>Current Inventory</h2>
                 <p id="resultHint">Items are marked by expiry and low stock; supplier details help with quick ordering.</p>
               </div>
-              <button class="ghost-button" id="seedButton">Restore Samples</button>
             </div>
 
             <div class="inventory-list" id="inventoryList"></div>
@@ -267,9 +260,14 @@
             <select id="categoryInput">
               <option>Produce</option>
               <option>Meat / Dairy</option>
+              <option>Fish / Seafood</option>
+              <option>Bakery / Bread</option>
               <option>Dry Goods</option>
               <option>Seasoning</option>
               <option>Frozen</option>
+              <option>Beverages</option>
+              <option>Consumables</option>
+              <option>Cleaning Supplies</option>
               <option>Other</option>
             </select>
           </label>
@@ -395,8 +393,8 @@
       </form>
     </dialog>
 
-    <script src="app.js?v=0.10.1"></script>
-    <script src="i18n.js?v=0.10.1"></script>
+    <script src="app.js?v=0.10.16"></script>
+    <script src="i18n.js?v=0.10.16"></script>
   </body>
 </html>
 

@@ -1,7 +1,47 @@
-const APP_VERSION = "v0.10.8";
+const APP_VERSION = "v0.10.16";
 const STORAGE_KEY = "kitchen-inventory-v2";
 const LEGACY_KEY = "kitchen-inventory-v1";
-const categories = ["All", "Produce", "Meat / Dairy", "Dry Goods", "Seasoning", "Frozen", "Other"];
+const categories = ["All", "Produce", "Meat / Dairy", "Fish / Seafood", "Bakery / Bread", "Dry Goods", "Seasoning", "Frozen", "Beverages", "Consumables", "Cleaning Supplies", "Other"];
+const EXECUTORS = ["Aiden", "Alex", "Carla", "Kristian", "Lukasz", "Sarah", "Stevie"];
+const ORDER_PURPOSES = [
+  "Tomorrow Breakfast",
+  "Tomorrow Dinner",
+  "Routine Restock",
+  "Wedding Event",
+  "Tour Group",
+  "Conference Event",
+  "Other Event",
+];
+
+const PURCHASE_CATALOG_VERSION = 8;
+const AUTHORIZED_ITEM_DELETE_EXECUTORS = ["Stevie", "Alex"];
+const INVENTORY_NAME_ALIASES = {
+  chickenbreast: "Chicken Breast Fillet",
+  chickenfillet: "Chicken Breast Fillet",
+  butterunsalted: "Unsalted Butter",
+  brakeunsaltedbutter: "Unsalted Butter",
+  vegetableoil: "Rapeseed Oil 20L",
+  cookingoil: "Rapeseed Oil 20L",
+  rapeseedoil: "Rapeseed Oil 20L",
+  sysclasextendliferapeseedoil20ltr: "Rapeseed Oil 20L",
+  oliveoil: "Extra Virgin Olive Oil 2L",
+  syscoclassicextrvirgnoliveoil1x2ltr: "Extra Virgin Olive Oil 2L",
+  vinegar: "White Wine Vinegar",
+  goatscheeselog: "Goats Cheese",
+  syscogratedcolmildcheddar: "Grated Mild Cheddar",
+  brakeessentialsgratedwhitecheese1kg: "Grated White Cheese",
+  cheesegratedwhitemildcheddar2kg: "Grated Mild Cheddar",
+  syscoclasscmixedcheeseportion50x20g: "Mixed Cheese Portions",
+  paysanbretonlebrie: "Brie",
+  applewoodcheese: "Applewood Cheese",
+  cheesebluemurder625g: "Blue Cheese",
+  softcheesefullfat2kgyesterfarm: "Soft Cheese Full Fat",
+  philadelphiacheese: "Philadelphia Cheese",
+  syscoclassicslicedemmental1x500g: "Sliced Emmental",
+  granaroloparmigianoregshave1x500g: "Parmesan Shavings",
+  unfreezehaddock: "Haddock",
+  seabass: "Sea Bass Fillet",
+};
 
 const dinnerMenu = [
   { dish: "Soup", ingredients: ["Soup", "Sourdough Bread"] },
@@ -47,14 +87,148 @@ const sampleItems = [
   createSampleItem("Eggs", 8, "pcs", "Meat / Dairy", "Fridge Door", 5, 6, "Brakes", "brakes", 1, "", "Standard", "Weekly", "Use first for breakfast and baking."),
   createSampleItem("Tomatoes", 3, "pcs", "Produce", "Chiller Shelf", 2, 2, "Brakes", "brakes", 1, "", "Standard", "Weekly", "Good to use first for soup or scrambled eggs."),
   createSampleItem("Pasta", 1, "bag", "Dry Goods", "Cupboard", 160, 2, "Brakes", "brakes", 2, "", "Standard", "Monthly", "Restock when below 2 bags."),
-  createSampleItem("Frozen Prawns", 450, "g", "Frozen", "Freezer Drawer", 35, 300, "Campbells Meat", "campbells", 2, "https://www.campbellsmeat.com/", "High Value / Bulk", "Weekly", ""),
+  createSampleItem("Frozen Prawns", 450, "g", "Fish / Seafood", "Freezer Drawer", 35, 300, "Campbells Meat", "campbells", 2, "https://www.campbellsmeat.com/", "High Value / Bulk", "Weekly", ""),
   createSampleItem("Steaks", 12, "pcs", "Frozen", "Freezer Drawer", 25, 6, "Campbells Meat", "campbells", 2, "https://www.campbellsmeat.com/", "Event Only", "Weekly", "Prioritise tracking for events and group meals."),
+];
+
+const purchaseCatalogItems = [
+  createSampleItem("Ice Cubes", 1, "bag", "Frozen", "Freezer", 30, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Button Mushrooms", 1, "box", "Produce", "Walk-in Fridge", 30, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Gratin Dauphinoise", 1, "box", "Frozen", "Freezer", 30, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Tenderstem Broccoli", 1, "box", "Produce", "Walk-in Fridge", 10, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Baked Beans", 1, "box", "Dry Goods", "Office", 180, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Grapes", 1, "box", "Produce", "Walk-in Fridge", 7, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Cucumber", 1, "box", "Produce", "Walk-in Fridge", 7, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Potato Scones", 1, "box", "Dry Goods", "Office", 60, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Parsnips", 1, "box", "Produce", "Walk-in Fridge", 14, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Shoot Mix", 1, "box", "Produce", "Walk-in Fridge", 7, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Edible Flowers", 1, "box", "Produce", "Walk-in Fridge", 5, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Asparagus", 1, "box", "Produce", "Walk-in Fridge", 7, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Orange Juice", 1, "bottle", "Dry Goods", "Office", 90, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Apple Juice", 1, "bottle", "Dry Goods", "Office", 90, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Goats Cheese", 1, "box", "Meat / Dairy", "Walk-in Fridge", 10, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Grated Mild Cheddar", 1, "bag", "Meat / Dairy", "Walk-in Fridge", 21, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Invoice item: Cheese Grated White Mild Cheddar 2kg / Sysco Grated Mild Cheddar."),
+  createSampleItem("Grated White Cheese", 1, "bag", "Meat / Dairy", "Walk-in Fridge", 21, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Invoice item: Brake Essentials Grated White Cheese 1kg."),
+  createSampleItem("Mixed Cheese Portions", 1, "box", "Meat / Dairy", "Walk-in Fridge", 21, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Invoice item: Sysco Classic Mixed Cheese Portion 50x20g."),
+  createSampleItem("Brie", 1, "piece", "Meat / Dairy", "Walk-in Fridge", 21, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Invoice item: Paysan Breton Le Brie / French Brie."),
+  createSampleItem("Applewood Cheese", 1, "piece", "Meat / Dairy", "Walk-in Fridge", 21, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Invoice item: Cheese Applewood."),
+  createSampleItem("Blue Cheese", 1, "piece", "Meat / Dairy", "Walk-in Fridge", 21, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Invoice item: Cheese Blue Murder."),
+  createSampleItem("Soft Cheese Full Fat", 1, "tub", "Meat / Dairy", "Walk-in Fridge", 21, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Invoice item: Soft Cheese Full Fat 2kg."),
+  createSampleItem("Philadelphia Cheese", 1, "tub", "Meat / Dairy", "Walk-in Fridge", 21, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Invoice item: Philadelphia Cheese."),
+  createSampleItem("Sliced Emmental", 1, "pack", "Meat / Dairy", "Walk-in Fridge", 21, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Invoice item: Sysco Classic Sliced Emmental 1x500g."),
+  createSampleItem("Parmesan Shavings", 1, "pack", "Meat / Dairy", "Walk-in Fridge", 21, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Invoice item: Granarolo Parmigiano Reggiano Shavings."),
+  createSampleItem("Breaded Mozzarella Sticks", 1, "box", "Frozen", "Freezer", 90, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Invoice item: Cheese Pickers Breaded Mozzarella Sticks."),
+  createSampleItem("Creme Fraiche", 1, "tub", "Meat / Dairy", "Walk-in Fridge", 21, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Invoice item: GVD Reduced Fat Creme Fraiche."),
+  createSampleItem("Mushy Peas", 1, "box", "Frozen", "Freezer", 30, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Scallops", 1, "box", "Fish / Seafood", "Freezer", 30, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Spring Onions", 1, "box", "Produce", "Walk-in Fridge", 7, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Strawberries", 1, "box", "Produce", "Walk-in Fridge", 5, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Roasted Red Peppers", 1, "jar", "Dry Goods", "Office", 180, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Oranges", 1, "box", "Produce", "Walk-in Fridge", 14, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Cantaloupe Melon", 1, "each", "Produce", "Walk-in Fridge", 7, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Blackberries", 1, "punnet", "Produce", "Walk-in Fridge", 5, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Unsalted Butter", 1, "box", "Meat / Dairy", "Walk-in Fridge", 21, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Butter Portions", 1, "pack", "Meat / Dairy", "Walk-in Fridge", 21, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Invoice item: Wholesome Farm Butter Portions."),
+  createSampleItem("Vegan Sunflower Spread", 1, "tub", "Meat / Dairy", "Walk-in Fridge", 21, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Invoice item: BEBO Vegan Sunflower Spread."),
+  createSampleItem("Cauliflower", 1, "each", "Produce", "Walk-in Fridge", 7, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Mint", 1, "bunch", "Seasoning", "Walk-in Fridge", 5, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Tarragon", 1, "bunch", "Seasoning", "Walk-in Fridge", 5, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Leek", 1, "box", "Produce", "Walk-in Fridge", 10, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Lemon", 1, "box", "Produce", "Walk-in Fridge", 14, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Honey Glazed Ham", 1, "box", "Meat / Dairy", "Walk-in Fridge", 14, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Whole Grain Mustard", 1, "jar", "Seasoning", "Office", 180, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Garlic Powder", 1, "jar", "Seasoning", "Office", 180, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Raspberries", 1, "punnet", "Produce", "Walk-in Fridge", 5, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Hollandaise Sauce", 1, "bottle", "Meat / Dairy", "Walk-in Fridge", 21, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Sweet Potato", 1, "box", "Produce", "Walk-in Fridge", 14, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Cabbage White", 1, "each", "Produce", "Walk-in Fridge", 14, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Cabbage Red", 1, "each", "Produce", "Walk-in Fridge", 14, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Dill", 1, "bunch", "Seasoning", "Walk-in Fridge", 5, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Rosemary", 1, "bunch", "Seasoning", "Walk-in Fridge", 5, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Thyme", 1, "bunch", "Seasoning", "Walk-in Fridge", 5, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Honey", 1, "bottle", "Dry Goods", "Office", 365, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Mascarpone", 1, "box", "Meat / Dairy", "Walk-in Fridge", 21, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Spinach", 1, "box", "Produce", "Walk-in Fridge", 7, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Lollo Rosso Lettuce", 1, "each", "Produce", "Walk-in Fridge", 7, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Radicchio Lettuce", 1, "each", "Produce", "Walk-in Fridge", 7, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Mixed Peppers", 1, "box", "Produce", "Walk-in Fridge", 7, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Baby Potatoes", 1, "box", "Produce", "Walk-in Fridge", 14, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Cream Double", 1, "bottle", "Meat / Dairy", "Walk-in Fridge", 14, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Milk Full Fat", 1, "bottle", "Meat / Dairy", "Walk-in Fridge", 10, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Pork & Herb Links", 1, "box", "Meat / Dairy", "Freezer", 30, 0, "Campbells Meat", "campbells", 1, "https://www.campbellsmeat.com/", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Mince", 1, "box", "Meat / Dairy", "Freezer", 30, 0, "Campbells Meat", "campbells", 1, "https://www.campbellsmeat.com/", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Chicken Breast Fillet", 1, "box", "Meat / Dairy", "Walk-in Fridge", 7, 0, "Campbells Meat", "campbells", 1, "https://www.campbellsmeat.com/", "Standard", "Weekly", "Imported from purchase history."),
+  createSampleItem("Haddock", 1, "box", "Fish / Seafood", "Freezer", 14, 0, "Brakes", "brakes", 1, "", "Standard", "Weekly", "Imported from purchase history."),
+  createSampleItem("Sea Bass Fillet", 1, "box", "Fish / Seafood", "Freezer", 14, 0, "Brakes", "brakes", 1, "", "Standard", "Weekly", "Imported from purchase history."),
+  createSampleItem("Salmon Fillet", 1, "box", "Fish / Seafood", "Freezer", 14, 0, "Campbells Meat", "campbells", 1, "https://www.campbellsmeat.com/", "Standard", "Weekly", "High-frequency fish item from invoice history."),
+  createSampleItem("Cod Fillet", 1, "box", "Fish / Seafood", "Freezer", 14, 0, "Brakes", "brakes", 1, "", "Standard", "Weekly", "High-frequency fish item from invoice history."),
+  createSampleItem("Mackerel Fillet", 1, "box", "Fish / Seafood", "Freezer", 14, 0, "Brakes", "brakes", 1, "", "Standard", "Weekly", "High-frequency fish item from invoice history."),
+  createSampleItem("King Prawns", 1, "bag", "Fish / Seafood", "Freezer", 30, 0, "Campbells Meat", "campbells", 1, "https://www.campbellsmeat.com/", "High Value / Bulk", "Weekly", "High-frequency seafood item from invoice history."),
+  createSampleItem("Smoked Back Bacon", 1, "pack", "Meat / Dairy", "Walk-in Fridge", 14, 0, "Campbells Meat", "campbells", 1, "https://www.campbellsmeat.com/", "Standard", "Weekly", "High-frequency meat item from invoice history."),
+  createSampleItem("Streaky Bacon", 1, "pack", "Meat / Dairy", "Walk-in Fridge", 14, 0, "Campbells Meat", "campbells", 1, "https://www.campbellsmeat.com/", "Standard", "Weekly", "High-frequency meat item from invoice history."),
+  createSampleItem("Lorne Sausage", 1, "pack", "Meat / Dairy", "Walk-in Fridge", 14, 0, "Campbells Meat", "campbells", 1, "https://www.campbellsmeat.com/", "Standard", "Weekly", "High-frequency meat item from invoice history."),
+  createSampleItem("Black Pudding", 1, "roll", "Meat / Dairy", "Walk-in Fridge", 14, 0, "Campbells Meat", "campbells", 1, "https://www.campbellsmeat.com/", "Standard", "Weekly", "High-frequency breakfast item from invoice history."),
+  createSampleItem("Haggis", 1, "roll", "Meat / Dairy", "Walk-in Fridge", 14, 0, "Campbells Meat", "campbells", 1, "https://www.campbellsmeat.com/", "Standard", "Weekly", "High-frequency breakfast item from invoice history."),
+  createSampleItem("Diced Beef", 1, "box", "Meat / Dairy", "Walk-in Fridge", 14, 0, "Campbells Meat", "campbells", 1, "https://www.campbellsmeat.com/", "High Value / Bulk", "Weekly", "High-frequency meat item from invoice history."),
+  createSampleItem("Ribeye", 1, "piece", "Meat / Dairy", "Walk-in Fridge", 14, 0, "Campbells Meat", "campbells", 1, "https://www.campbellsmeat.com/", "High Value / Bulk", "Weekly", "High-frequency meat item from invoice history."),
+  createSampleItem("Lamb Leg", 1, "piece", "Meat / Dairy", "Walk-in Fridge", 14, 0, "Campbells Meat", "campbells", 1, "https://www.campbellsmeat.com/", "High Value / Bulk", "Weekly", "High-frequency meat item from invoice history."),
+  createSampleItem("Rapeseed Oil 20L", 1, "bottle", "Dry Goods", "Office", 180, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Invoice item: Sys Clas Extend Life Rapeseed Oil 20ltr."),
+  createSampleItem("Extra Virgin Olive Oil 2L", 1, "bottle", "Dry Goods", "Office", 180, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Invoice item: Sysco Classic Extra Virgin Olive Oil 1x2ltr."),
+  createSampleItem("Sunflower Oil", 1, "bottle", "Dry Goods", "Office", 180, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Core kitchen oil item."),
+  createSampleItem("Lemon Oil", 1, "bottle", "Seasoning", "Office", 180, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "High-frequency seasoning item from menu checks."),
+  createSampleItem("Herb Oil", 1, "bottle", "Seasoning", "Office", 180, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "High-frequency seasoning item from menu checks."),
+  createSampleItem("Mint Oil", 1, "bottle", "Seasoning", "Office", 180, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "High-frequency seasoning item from menu checks."),
+  createSampleItem("Salt", 1, "jar", "Seasoning", "Office", 365, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Black Pepper", 1, "jar", "Seasoning", "Office", 365, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("White Pepper", 1, "jar", "Seasoning", "Office", 365, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Gravy Granules", 1, "box", "Seasoning", "Office", 180, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "High-frequency dry seasoning item from invoice history."),
+  createSampleItem("Mayonnaise", 1, "bottle", "Seasoning", "Walk-in Fridge", 60, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "High-frequency sauce item from menu checks."),
+  createSampleItem("Tomato Ketchup", 1, "bottle", "Seasoning", "Office", 180, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Invoice item: Sysco Classic Tomato Ketchup 2.15ltr."),
+  createSampleItem("Tartare Sauce", 1, "bottle", "Seasoning", "Walk-in Fridge", 60, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "High-frequency sauce item from menu checks."),
+  createSampleItem("Caesar Sauce", 1, "bottle", "Seasoning", "Walk-in Fridge", 60, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "High-frequency sauce item from menu checks."),
+  createSampleItem("Burger Sauce", 1, "bottle", "Seasoning", "Walk-in Fridge", 60, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "High-frequency sauce item from menu checks."),
+  createSampleItem("Soy Sauce", 1, "bottle", "Seasoning", "Office", 180, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "High-frequency dry store item."),
+  createSampleItem("White Wine Vinegar", 1, "bottle", "Seasoning", "Office", 365, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Invoice item: Hazlemere White Wine Vinegar 1x5ltr."),
+  createSampleItem("Red Cooking Wine", 1, "bottle", "Seasoning", "Office", 180, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Invoice item: Sysco Red Cooking Wine."),
+  createSampleItem("Beef Bouillon Paste", 1, "tub", "Seasoning", "Office", 180, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Invoice item: Brakes Beef Bouillon Paste."),
+  createSampleItem("Vegetable Bouillon Paste", 1, "tub", "Seasoning", "Office", 180, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Invoice item: Brakes Vegetable Bouillon Paste."),
+  createSampleItem("Onions", 1, "box", "Produce", "Walk-in Fridge", 14, 0, "Brakes", "brakes", 1, "", "Standard", "Weekly", "Imported from purchase history."),
+  createSampleItem("Red Onion", 1, "box", "Produce", "Walk-in Fridge", 14, 0, "Brakes", "brakes", 1, "", "Standard", "Weekly", "High-frequency produce item from menu checks."),
+  createSampleItem("Garlic", 1, "box", "Produce", "Walk-in Fridge", 14, 0, "Brakes", "brakes", 1, "", "Standard", "Weekly", "Imported from purchase history."),
+  createSampleItem("Baby Carrots", 1, "box", "Produce", "Walk-in Fridge", 10, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Weekly", "High-frequency produce item from menu checks."),
+  createSampleItem("Broccoli", 1, "box", "Produce", "Walk-in Fridge", 7, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Weekly", "High-frequency produce item from menu checks."),
+  createSampleItem("Garden Peas", 1, "bag", "Frozen", "Freezer", 30, 0, "Brakes", "brakes", 1, "", "Standard", "Weekly", "High-frequency frozen produce item from menu checks."),
+  createSampleItem("Broad Beans", 1, "bag", "Frozen", "Freezer", 30, 0, "Brakes", "brakes", 1, "", "Standard", "Weekly", "High-frequency frozen produce item from menu checks."),
+  createSampleItem("Courgette", 1, "box", "Produce", "Walk-in Fridge", 7, 0, "Mark Murphy", "markmurphy", 1, "", "Standard", "Weekly", "High-frequency produce item from menu checks."),
+  createSampleItem("Rocket", 1, "box", "Produce", "Walk-in Fridge", 5, 0, "Brakes", "brakes", 1, "", "Standard", "Weekly", "High-frequency salad item from menu checks."),
+  createSampleItem("Plain Flour", 1, "bag", "Dry Goods", "Office", 365, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Chopped Tomatoes", 1, "tin", "Dry Goods", "Office", 365, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Invoice item: Sysco Classic Chopped Tomatoes in Juice."),
+  createSampleItem("Puff Pastry Lids", 1, "box", "Frozen", "Freezer", 90, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Invoice item: Sysco Essential Puff Pastry Lid Oval."),
+  createSampleItem("Chunky Skin On Chips", 1, "bag", "Frozen", "Freezer", 90, 0, "Brakes", "brakes", 1, "", "Standard", "Weekly", "Invoice item: Sysco Premium Chunky Skin On Chips."),
+  createSampleItem("Thin Cut Fries", 1, "bag", "Frozen", "Freezer", 90, 0, "Brakes", "brakes", 1, "", "Standard", "Weekly", "Invoice item: Sysco Premium Thin Cut Fries."),
+  createSampleItem("Chicken Stock", 1, "box", "Dry Goods", "Office", 180, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Fish Stock", 1, "box", "Dry Goods", "Office", 180, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Toilet Roll", 1, "pack", "Consumables", "Housekeeping Store", 365, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Paper Towel", 1, "pack", "Consumables", "Housekeeping Store", 365, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Bin Bags", 1, "box", "Consumables", "Housekeeping Store", 365, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Multi-Surface Spray", 1, "bottle", "Cleaning Supplies", "Housekeeping Store", 365, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Dishwashing Liquid", 1, "bottle", "Cleaning Supplies", "Housekeeping Store", 365, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Sourdough Loaf", 1, "loaf", "Bakery / Bread", "Bread Store", 3, 0, "Brakes", "brakes", 1, "", "Standard", "Daily", "Imported from purchase history."),
+  createSampleItem("Ciabatta", 1, "box", "Bakery / Bread", "Bread Store", 3, 0, "Brakes", "brakes", 1, "", "Standard", "Daily", "Imported from purchase history."),
+  createSampleItem("Flatbread", 1, "box", "Bakery / Bread", "Bread Store", 3, 0, "Brakes", "brakes", 1, "", "Standard", "Daily", "Imported from purchase history."),
+  createSampleItem("Garlic Bread", 1, "box", "Bakery / Bread", "Bread Store", 3, 0, "Brakes", "brakes", 1, "", "Standard", "Daily", "Imported from purchase history."),
+  createSampleItem("White Bread", 1, "loaf", "Bakery / Bread", "Bread Store", 3, 0, "Brakes", "brakes", 1, "", "Standard", "Daily", "Imported from purchase history."),
+  createSampleItem("Croissant Loaf", 1, "box", "Bakery / Bread", "Bread Store", 3, 0, "Brakes", "brakes", 1, "", "Standard", "Daily", "Imported from purchase history."),
+  createSampleItem("Orange Juice", 1, "bottle", "Beverages", "Dry Store", 90, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
+  createSampleItem("Apple Juice", 1, "bottle", "Beverages", "Dry Store", 90, 0, "Brakes", "brakes", 1, "", "Standard", "Monthly", "Imported from purchase history."),
 ];
 
 let state = loadState();
 let activeCategory = "All";
 let activeMenuType = null;
 let editingId = null;
+
+persist();
 
 const elements = {
   totalCount: document.querySelector("#totalCount"),
@@ -121,7 +295,6 @@ const elements = {
 document.querySelector("#openAddButton").addEventListener("click", openAddDialog);
 document.querySelector("#closeDialogButton").addEventListener("click", closeItemDialog);
 document.querySelector("#cancelDialogButton").addEventListener("click", closeItemDialog);
-document.querySelector("#seedButton").addEventListener("click", restoreSamples);
 document.querySelector("#exportButton").addEventListener("click", exportData);
 document.querySelector("#printReportButton").addEventListener("click", printDailyReport);
 document.querySelector("#createOrdersButton").addEventListener("click", createOrdersFromLowStock);
@@ -135,6 +308,8 @@ elements.searchInput.addEventListener("input", render);
 elements.sortSelect.addEventListener("change", render);
 elements.itemForm.addEventListener("submit", saveItem);
 elements.stocktakeForm.addEventListener("submit", saveStocktake);
+populateExecutorOptions();
+populatePurposeOptions(elements.defaultPurposeInput);
 elements.defaultServiceDateInput.value = offsetDate(0);
 elements.defaultOrderedByInput.readOnly = true;
 elements.executorInput.value = "";
@@ -192,9 +367,28 @@ function requireExecutor() {
   return false;
 }
 
+function requireItemDeletePermission() {
+  if (AUTHORIZED_ITEM_DELETE_EXECUTORS.includes(getCurrentExecutor())) return true;
+  alert("Only Stevie or Alex can delete inventory items. Please switch executor first.");
+  elements.executorInput.focus();
+  return false;
+}
+
 function clearExecutorSelection() {
   elements.executorInput.value = "";
   elements.defaultOrderedByInput.value = "";
+}
+
+function populateExecutorOptions() {
+  elements.executorInput.innerHTML = ["", ...EXECUTORS]
+    .map((executor) => `<option value="${escapeHtml(executor)}">${escapeHtml(executor)}</option>`)
+    .join("");
+}
+
+function populatePurposeOptions(selectElement) {
+  selectElement.innerHTML = ORDER_PURPOSES.map(
+    (purpose) => `<option value="${escapeHtml(purpose)}">${escapeHtml(purpose)}</option>`,
+  ).join("");
 }
 
 function createSampleItem(
@@ -247,9 +441,9 @@ function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved) {
     try {
-      return normalizeState(JSON.parse(saved));
+      return mergePurchaseCatalog(normalizeState(JSON.parse(saved)));
     } catch {
-      return { items: sampleItems, orders: [], stocktakes: [], menuChecks: {} };
+      return mergePurchaseCatalog({ items: sampleItems, orders: [], stocktakes: [], menuChecks: {}, catalogVersion: 0 });
     }
   }
 
@@ -257,22 +451,23 @@ function loadState() {
   if (legacy) {
     try {
       const items = JSON.parse(legacy);
-      if (Array.isArray(items)) return { items: items.map(normalizeItem), orders: [], stocktakes: [], menuChecks: {} };
+      if (Array.isArray(items)) return mergePurchaseCatalog({ items: items.map(normalizeItem), orders: [], stocktakes: [], menuChecks: {}, catalogVersion: 0 });
     } catch {
-      return { items: sampleItems, orders: [], stocktakes: [], menuChecks: {} };
+      return mergePurchaseCatalog({ items: sampleItems, orders: [], stocktakes: [], menuChecks: {}, catalogVersion: 0 });
     }
   }
 
-  return { items: sampleItems, orders: [], stocktakes: [], menuChecks: {} };
+  return mergePurchaseCatalog({ items: sampleItems, orders: [], stocktakes: [], menuChecks: {}, catalogVersion: 0 });
 }
 
 function normalizeState(nextState) {
-  if (Array.isArray(nextState)) return { items: nextState.map(normalizeItem), orders: [], stocktakes: [], menuChecks: {} };
+  if (Array.isArray(nextState)) return { items: nextState.map(normalizeItem), orders: [], stocktakes: [], menuChecks: {}, catalogVersion: 0 };
   return {
     items: Array.isArray(nextState.items) ? nextState.items.map(normalizeItem) : sampleItems,
     orders: Array.isArray(nextState.orders) ? nextState.orders.map(normalizeOrder) : [],
     stocktakes: Array.isArray(nextState.stocktakes) ? nextState.stocktakes.map(normalizeStocktake) : [],
     menuChecks: nextState.menuChecks && typeof nextState.menuChecks === "object" ? nextState.menuChecks : {},
+    catalogVersion: Number(nextState.catalogVersion || 0),
   };
 }
 
@@ -336,6 +531,31 @@ function normalizeStocktake(stocktake) {
     reason: translateLegacyValue(stocktake.reason || ""),
     note: translateLegacyValue(stocktake.note || ""),
     createdAt: stocktake.createdAt || new Date().toISOString(),
+  };
+}
+
+function mergePurchaseCatalog(nextState) {
+  const normalizedItems = (nextState.items || []).map((item) => {
+    const resolvedName = resolveInventoryName(item.name);
+    return resolvedName === item.name ? item : { ...item, name: resolvedName };
+  });
+  const dedupedItems = [];
+  const existingNames = new Set();
+  normalizedItems.forEach((item) => {
+    const normalizedName = normalizeIngredientName(item.name);
+    if (existingNames.has(normalizedName)) return;
+    existingNames.add(normalizedName);
+    dedupedItems.push(item);
+  });
+  const additions = purchaseCatalogItems.filter((item) => !existingNames.has(normalizeIngredientName(item.name)));
+  if (additions.length === 0 && Number(nextState.catalogVersion || 0) >= PURCHASE_CATALOG_VERSION) {
+    return { ...nextState, items: dedupedItems, catalogVersion: PURCHASE_CATALOG_VERSION };
+  }
+
+  return {
+    ...nextState,
+    items: [...additions.map((item) => ({ ...item, id: createId() })), ...dedupedItems],
+    catalogVersion: PURCHASE_CATALOG_VERSION,
   };
 }
 
@@ -477,8 +697,8 @@ function getSummaryDetails(summaryType) {
   if (summaryType === "low") {
     return {
       title: "Low Stock",
-      subtitle: "Items at or below the reorder line",
-      emptyText: "No items are low on stock.",
+      subtitle: "Items at or below the reorder line after at least one stocktake",
+      emptyText: "No stocktaken items are low on stock.",
       items: lowItems.map((item) => ({
         html: `
           <strong>${escapeHtml(item.name)}</strong>
@@ -613,7 +833,7 @@ function renderInventory(filteredItems) {
   filteredItems.forEach((item) => {
     const daysLeft = getDaysLeft(item.expiry);
     const status = getStatus(daysLeft);
-    const isLow = Number(item.quantity) <= Number(item.threshold);
+    const isLow = isLowStockActive(item) && Number(item.quantity) <= Number(item.threshold);
     const card = document.createElement("article");
     card.className = `item-card ${status.level} ${isLow ? "low" : ""}`;
     card.innerHTML = `
@@ -638,13 +858,13 @@ function renderInventory(filteredItems) {
         ${item.note ? `<p class="note">${escapeHtml(item.note)}</p>` : ""}
       </div>
       <div class="item-actions">
-        <button title="Decrease Quantity" aria-label="Decrease Quantity" data-action="minus" data-id="${item.id}">−</button>
+        <button title="Decrease Quantity" aria-label="Decrease Quantity" data-action="minus" data-id="${item.id}">&#8722;</button>
         <button title="Increase Quantity" aria-label="Increase Quantity" data-action="plus" data-id="${item.id}">+</button>
-        <button title="Open Restock Website" aria-label="Open Restock Website" data-action="openSite" data-id="${item.id}">↗</button>
-        <button title="Create Supplier Order" aria-label="Create Supplier Order" data-action="order" data-id="${item.id}">＋</button>
+        <button title="Open Restock Website" aria-label="Open Restock Website" data-action="openSite" data-id="${item.id}">&#8599;</button>
+        <button title="Create Supplier Order" aria-label="Create Supplier Order" data-action="order" data-id="${item.id}">PO</button>
         <button title="Record Stocktake" aria-label="Record Stocktake" data-action="stocktake" data-id="${item.id}">ST</button>
-        <button title="Edit" aria-label="Edit" data-action="edit" data-id="${item.id}">✎</button>
-        <button title="Delete" aria-label="Delete" data-action="delete" data-id="${item.id}">×</button>
+        <button title="Edit" aria-label="Edit" data-action="edit" data-id="${item.id}">&#9998;</button>
+        <button title="Delete" aria-label="Delete" data-action="delete" data-id="${item.id}">&times;</button>
       </div>
     `;
     elements.inventoryList.appendChild(card);
@@ -669,7 +889,7 @@ function renderShoppingList() {
   lowItems.forEach((item) => {
     const li = document.createElement("li");
     li.innerHTML = `
-      <span>${escapeHtml(item.name)} · ${escapeHtml(item.supplier)}</span>
+      <span>${escapeHtml(item.name)} / ${escapeHtml(item.supplier)}</span>
       <strong>${formatNumber(getSuggestedQuantity(item))} ${escapeHtml(item.unit)}</strong>
     `;
     elements.shoppingList.appendChild(li);
@@ -783,7 +1003,15 @@ function renderStocktakes() {
   });
 }
 function getLowItems() {
-  return state.items.filter((item) => Number(item.quantity) <= Number(item.threshold));
+  return state.items.filter((item) => isLowStockActive(item) && Number(item.quantity) <= Number(item.threshold));
+}
+
+function isLowStockActive(item) {
+  return state.stocktakes.some(
+    (stocktake) =>
+      stocktake.itemId === item.id ||
+      normalizeIngredientName(stocktake.itemName) === normalizeIngredientName(item.name),
+  );
 }
 
 function getMenuCheckKey(menuType, dish, ingredient) {
@@ -823,13 +1051,14 @@ function handleMenuCheckAction(event) {
 }
 
 function markIngredientOutOfStock(ingredient, dish) {
-  const normalizedName = normalizeIngredientName(ingredient);
+  const inventoryName = resolveInventoryName(ingredient);
+  const normalizedName = normalizeIngredientName(inventoryName);
   let item = state.items.find((entry) => normalizeIngredientName(entry.name) === normalizedName);
 
   if (!item) {
     item = {
       id: createId(),
-      name: ingredient,
+      name: inventoryName,
       quantity: 0,
       unit: "portion",
       category: inferCategoryFromIngredient(ingredient),
@@ -890,8 +1119,7 @@ function getOrderStatusLabel(status) {
 }
 
 function getPurposeOptions(selectedPurpose) {
-  const purposes = ["Tomorrow Breakfast", "Tomorrow Dinner", "Routine Restock", "Wedding Event", "Tour Group", "Conference Event", "Other Event"];
-  return purposes
+  return ORDER_PURPOSES
     .map((purpose) => {
       const selected = purpose === selectedPurpose ? "selected" : "";
       return `<option value="${escapeHtml(purpose)}" ${selected}>${escapeHtml(purpose)}</option>`;
@@ -992,6 +1220,7 @@ function handleItemAction(event) {
   if (action === "edit") openEditDialog(item);
 
   if (action === "delete") {
+    if (!requireItemDeletePermission()) return;
     state.items = state.items.filter((entry) => entry.id !== id);
     state.orders = state.orders.filter((order) => order.itemId !== id);
     persist();
@@ -1108,7 +1337,7 @@ function createOrder(item) {
     createdAt: offsetDate(0),
     dueDate: offsetDate(Number(item.leadDays || 1)),
     orderedBy: getCurrentExecutor(),
-    purpose: elements.defaultPurposeInput.value,
+    purpose: elements.defaultPurposeInput.value || ORDER_PURPOSES[0],
     serviceDate: elements.defaultServiceDateInput.value || offsetDate(0),
     eventName: elements.defaultEventNameInput.value.trim(),
   };
@@ -1209,7 +1438,7 @@ function closeItemDialog() {
 
 function openEditDialog(item) {
   editingId = item.id;
-  elements.dialogTitle.textContent = "EditItem";
+  elements.dialogTitle.textContent = "Edit Item";
   elements.itemId.value = item.id;
   elements.nameInput.value = item.name;
   elements.quantityInput.value = item.quantity;
@@ -1270,18 +1499,6 @@ function saveItem(event) {
 
   persist();
   elements.itemDialog.close();
-  render();
-}
-
-function restoreSamples() {
-  if (!requireExecutor()) return;
-  state = {
-    items: sampleItems.map((item) => ({ ...item, id: createId() })),
-    orders: [],
-    stocktakes: [],
-    menuChecks: {},
-  };
-  persist();
   render();
 }
 
@@ -1433,7 +1650,8 @@ function inferTrackingType(category, name) {
 
 function inferCategoryFromIngredient(ingredient) {
   const text = ingredient.toLowerCase();
-  if (/beef|steak|chicken|fish|seabass|haddock|mackerel|cheese|cream|ice cream/.test(text)) return "Meat / Dairy";
+  if (/fish|seabass|sea bass|haddock|mackerel|salmon|cod|prawn|scallop/.test(text)) return "Fish / Seafood";
+  if (/beef|steak|chicken|bacon|sausage|haggis|black pudding|lamb|cheese|cream|ice cream/.test(text)) return "Meat / Dairy";
   if (/chips|fries|bread|bun|rice|noodle|pastry|tart|pudding/.test(text)) return "Dry Goods";
   if (/sauce|jus|mayo|oil|butter|piccalilli|tartare/.test(text)) return "Seasoning";
   if (/carrot|broccoli|pea|beans|courgette|asparagus|lettuce|rocket|onion|tomato|veg|berries|raspberries|mushroom|parsnip/.test(text)) return "Produce";
@@ -1445,6 +1663,10 @@ function normalizeIngredientName(name) {
     .toLowerCase()
     .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "")
     .trim();
+}
+
+function resolveInventoryName(name) {
+  return INVENTORY_NAME_ALIASES[normalizeIngredientName(name)] || name;
 }
 
 function inferSupplierSite(supplier) {

@@ -49,7 +49,6 @@ const exactText = {
   "Once you provide the breakfast or event menu, I will add the fixed checks here.": "等你给我早餐或团餐菜单后，我会把固定检查项加到这里。",
   "Current Inventory": "当前库存",
   "Items are marked by expiry and low stock; supplier details help with quick ordering.": "按临期和低库存自动标记，供应商信息用于快速下单。",
-  "Restore Samples": "恢复示例",
   "No matching items": "还没有匹配的食材",
   "Try changing the search, or add a kitchen stock item.": "试试调整搜索，或者新增一件厨房库存。",
   "Supplier Orders": "供应商订单",
