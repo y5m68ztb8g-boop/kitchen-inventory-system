@@ -13,6 +13,8 @@ __pycache__/
 # Local generated databases
 data/*.sqlite
 data/*.sqlite-*
+data/supplier_search.json
+data/supplier_search_data.js
 
 # Source business data: keep local unless explicitly approved
 *.xlsx

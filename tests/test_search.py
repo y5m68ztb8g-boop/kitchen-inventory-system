@@ -4,7 +4,7 @@ from pathlib import Path
 
 from inventory_mvp.importer import import_workbook
 from inventory_mvp.schema import create_schema
-from inventory_mvp.search import search_supplier_products
+from inventory_mvp.search import get_supplier_product_details, search_supplier_products
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +33,22 @@ class SearchTests(unittest.TestCase):
         codes = {row["supplier_product_code"] for row in results}
         self.assertIn("22CFIL4", codes)
         self.assertIn("22CFIL5K", codes)
+
+    def test_supplier_product_details_include_invoice_history(self):
+        row = self.conn.execute(
+            """
+            SELECT sp.id
+            FROM supplier_products sp
+            JOIN suppliers s ON s.id = sp.supplier_id
+            WHERE s.supplier_code = 'BRK' AND sp.supplier_product_code = '134553'
+            """
+        ).fetchone()
+
+        details = get_supplier_product_details(self.conn, row["id"])
+
+        self.assertEqual(details["supplier_product_code"], "134553")
+        self.assertGreaterEqual(len(details["invoice_history"]), 1)
+        self.assertIn("invoice_number", details["invoice_history"][0])
 
 
 if __name__ == "__main__":

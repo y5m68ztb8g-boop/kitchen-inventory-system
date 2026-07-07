@@ -13,8 +13,8 @@
           <div class="brand-heading">
             <img class="brand-mark" src="assets/tinto-logo.jpg" alt="Tinto Hotel" />
             <div>
-              <p class="eyebrow">Tinto Hotel Kitchen Stock</p>
-              <h1><span id="appTitle">Kitchen Stock Management</span> <span class="version-badge" id="appVersion">v0.10.16</span></h1>
+            <p class="eyebrow">Tinto Hotel Kitchen Stock</p>
+            <h1><span id="appTitle">Kitchen Stock Management</span> <span class="version-badge" id="appVersion">v0.10.17</span></h1>
             </div>
           </div>
         </div>
@@ -26,6 +26,7 @@
           <button class="ghost-button" id="languageToggleButton" type="button">中文</button>
           <button class="ghost-button" id="printReportButton">Print Report</button>
           <button class="icon-button" id="exportButton" title="Export Data" aria-label="Export Data">&#8595;</button>
+          <button class="ghost-button" id="openSupplierSearchButton" type="button">Supplier Search</button>
           <button class="primary-button" id="openAddButton">Add Item</button>
         </div>
       </header>
@@ -125,6 +126,7 @@
           <div class="version-panel">
             <h2>Version History</h2>
             <ul id="versionList">
+              <li><strong>v0.10.17</strong><span>Added a dedicated supplier product search entry point and a local SQLite-backed search page. / 新增供应商商品搜索入口，并接入本地 SQLite 搜索页。</span></li>
               <li><strong>v0.10.16</strong><span>Removed the sample restore control and changed low-stock alerts so they activate only after an item has been stocktaken. / 移除恢复示例按钮，并将低库存预警改为物品至少盘点一次后才启用。</span></li>
               <li><strong>v0.10.15</strong><span>Added invoice-backed cheese inventory items and restricted inventory item deletion to Alex and Stevie. / 补充发票里的奶酪类库存，并限制只有 Alex 和 Stevie 可以删除库存名目。</span></li>
               <li><strong>v0.10.14</strong><span>Added invoice-backed core stock items for rapeseed oil, olive oil, butter, sauces, bouillon, chopped tomatoes, pastry, chips, and fries. / 补充发票里反复出现的菜籽油、橄榄油、黄油、酱料、浓缩汤底、碎番茄、酥皮、薯块和薯条等核心库存。</span></li>
@@ -397,8 +399,6 @@
     <script src="i18n.js?v=0.10.16"></script>
   </body>
 </html>
-
-
 
 
 

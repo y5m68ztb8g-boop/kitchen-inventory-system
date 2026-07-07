@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Supplier Product Search</title>
+    <link rel="stylesheet" href="styles.css?v=0.10.17" />
+  </head>
+  <body class="supplier-search-page">
+    <main class="app-shell supplier-shell">
+      <header class="topbar supplier-topbar">
+        <div>
+          <p class="eyebrow">Grow Naturally Inventory</p>
+          <h1>Supplier Product Search</h1>
+          <p class="subtle-copy">Search invoice-backed supplier items from SQLite and open the purchase history for each product.</p>
+        </div>
+        <div class="top-actions">
+          <button class="ghost-button" type="button" id="refreshButton">Refresh</button>
+          <button class="primary-button" type="button" id="openInventoryButton">Kitchen App</button>
+        </div>
+      </header>
+
+      <section class="supplier-search-toolbar">
+        <label class="search-box supplier-search-box">
+          <span aria-hidden="true">&#128269;</span>
+          <input id="queryInput" type="search" placeholder="Search chicken, fudge cake, F41554, Brakes..." autocomplete="off" />
+        </label>
+
+        <label class="field-label" for="supplierFilter">Supplier</label>
+        <select id="supplierFilter">
+          <option value="">All suppliers</option>
+          <option value="BRK">Brakes</option>
+          <option value="MM">Mark Murphy</option>
+          <option value="CMP">Campbell</option>
+        </select>
+
+        <div class="supplier-stats">
+          <div><span>Results</span><strong id="resultCount">0</strong></div>
+          <div><span>Selected</span><strong id="selectedLabel">None</strong></div>
+        </div>
+      </section>
+
+      <section class="supplier-search-layout">
+        <section class="supplier-results-panel">
+          <div class="section-header tight">
+            <div>
+              <h2>Results</h2>
+              <p id="resultsHint">Type a few letters to search.</p>
+            </div>
+          </div>
+          <div id="resultList" class="supplier-result-list"></div>
+          <div id="emptyState" class="empty-state supplier-empty" hidden>
+            <strong>No matching supplier products</strong>
+            <span>Try a different keyword or supplier filter.</span>
+          </div>
+        </section>
+
+        <aside class="supplier-detail-panel">
+          <div class="section-header tight">
+            <div>
+              <h2>Selected Product</h2>
+              <p>Invoice history, latest pricing, and source traceability.</p>
+            </div>
+          </div>
+          <div id="detailPane" class="supplier-detail-empty">
+            <strong>No product selected</strong>
+            <span>Pick a result on the left to see its purchase history.</span>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script src="supplier-search.js?v=0.10.17"></script>
+  </body>
+</html>

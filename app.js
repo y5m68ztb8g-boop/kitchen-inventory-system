@@ -1,4 +1,4 @@
-const APP_VERSION = "v0.10.16";
+const APP_VERSION = "v0.10.17";
 const STORAGE_KEY = "kitchen-inventory-v2";
 const LEGACY_KEY = "kitchen-inventory-v1";
 const categories = ["All", "Produce", "Meat / Dairy", "Fish / Seafood", "Bakery / Bread", "Dry Goods", "Seasoning", "Frozen", "Beverages", "Consumables", "Cleaning Supplies", "Other"];
@@ -293,6 +293,9 @@ const elements = {
 };
 
 document.querySelector("#openAddButton").addEventListener("click", openAddDialog);
+document.querySelector("#openSupplierSearchButton").addEventListener("click", () => {
+  window.location.href = "supplier-search.html";
+});
 document.querySelector("#closeDialogButton").addEventListener("click", closeItemDialog);
 document.querySelector("#cancelDialogButton").addEventListener("click", closeItemDialog);
 document.querySelector("#exportButton").addEventListener("click", exportData);
@@ -1707,8 +1710,6 @@ function escapeHtml(value) {
     return entities[char];
   });
 }
-
-
 
 
 
