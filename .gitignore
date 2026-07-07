@@ -1,0 +1,21 @@
+# Python cache and local test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local generated databases
+data/*.sqlite
+data/*.sqlite-*
+
+# Source business data: keep local unless explicitly approved
+*.xlsx
+*.xls
+
+# Local environment files
+.env
+.env.*
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/
