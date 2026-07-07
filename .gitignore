@@ -4,3 +4,27 @@ preview*.png
 LOCAL_AI_README.md
 ask-local-ai.bat
 start-local-ai.bat
+
+# Python cache and local test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local generated databases
+data/*.sqlite
+data/*.sqlite-*
+data/supplier_search.json
+data/supplier_search_data.js
+
+# Source business data: keep local unless explicitly approved
+*.xlsx
+*.xls
+
+# Local environment files
+.env
+.env.*
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/
