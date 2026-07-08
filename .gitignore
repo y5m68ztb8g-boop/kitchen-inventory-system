@@ -19,3 +19,6 @@ data/*.sqlite-*
 .DS_Store
 .idea/
 .vscode/
+
+# Local feature worktrees
+.worktrees/
