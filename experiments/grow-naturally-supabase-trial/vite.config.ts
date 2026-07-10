@@ -5,8 +5,13 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import { dirname, resolve } from "node:path";
 import { loadEnv } from "vite";
+import { createPurchasingDatabase } from "./server/purchasing/database";
+import type { HistoricalInventoryEntry } from "./server/purchasing/matching";
+import { recogniseWhiteboard } from "./server/purchasing/openaiWhiteboard";
+import { installPurchasingRoutes } from "./server/purchasing/routes";
 
 const inventoryDatabasePath = resolve(process.cwd(), "local-data", "inventory-db.json");
+const purchasingDatabasePath = resolve(process.cwd(), "local-data", "purchasing.sqlite");
 const emptyInventoryDatabase = {
   deletedFreezerInventoryIds: [],
   dryStore: [],
@@ -59,6 +64,32 @@ async function readInventoryDatabase() {
   } catch {
     return emptyInventoryDatabase;
   }
+}
+
+function historicalInventoryEntries(value: unknown): HistoricalInventoryEntry[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return [];
+  }
+
+  const database = value as { dryStore?: unknown; freezer?: unknown };
+  return [database.dryStore, database.freezer]
+    .flatMap((entries) => (Array.isArray(entries) ? entries : []))
+    .filter(
+      (entry): entry is HistoricalInventoryEntry =>
+        Boolean(
+          entry &&
+            typeof entry === "object" &&
+            "productName" in entry &&
+            typeof entry.productName === "string" &&
+            "quantity" in entry &&
+            typeof entry.quantity === "number" &&
+            "supplierProduct" in entry &&
+            entry.supplierProduct &&
+            typeof entry.supplierProduct === "object" &&
+            "id" in entry.supplierProduct &&
+            typeof entry.supplierProduct.id === "string"
+        )
+    );
 }
 
 async function writeInventoryDatabase(database: unknown) {
@@ -212,6 +243,20 @@ export default defineConfig(({ mode }) => {
     {
       name: "grow-naturally-external-opener",
       configureServer(server) {
+        const purchasingDatabase = createPurchasingDatabase(purchasingDatabasePath);
+        installPurchasingRoutes(server, {
+          database: purchasingDatabase,
+          historicalCandidates: async () =>
+            (await server.ssrLoadModule("/src/generated/supplierCatalogue.ts")).SUPPLIER_CATALOGUE,
+          historicalInventoryEntries: async () => historicalInventoryEntries(await readInventoryDatabase()),
+          model: env.OPENAI_WHITEBOARD_MODEL,
+          recognise: (image) =>
+            recogniseWhiteboard(image, {
+              apiKey: env.OPENAI_API_KEY,
+              model: env.OPENAI_WHITEBOARD_MODEL
+            })
+        });
+
         server.middlewares.use("/api/inventory-db", async (request, response) => {
           if (request.method === "GET") {
             response.setHeader("Content-Type", "application/json");
