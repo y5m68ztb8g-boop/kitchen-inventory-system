@@ -3,8 +3,10 @@
 import { Readable } from "node:stream";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import Database from "better-sqlite3";
+import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPurchasingDatabase, getScanImage } from "../../server/purchasing/database";
+import { prepareWhiteboardImage } from "../../server/purchasing/imagePreparation";
 import { readMultipartImage } from "../../server/purchasing/multipart";
 import {
   WHITEBOARD_SYSTEM_INSTRUCTION,
@@ -251,14 +253,29 @@ function routeOptions() {
   return { baseUrl: startServer(server), database, options };
 }
 
-function uploadBody() {
+function uploadBody(image = Buffer.from("image"), mimeType = "image/jpeg") {
   const boundary = "route-test-boundary";
   return {
-    body: Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="whiteboard.jpg"\r\nContent-Type: image/jpeg\r\n\r\nimage\r\n--${boundary}--\r\n`
-    ),
+    body: Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="whiteboard.jpg"\r\nContent-Type: ${mimeType}\r\n\r\n`
+      ),
+      image,
+      Buffer.from(`\r\n--${boundary}--\r\n`)
+    ]),
     contentType: `multipart/form-data; boundary=${boundary}`
   };
+}
+
+function realSmokeRouteOptions() {
+  const database = createPurchasingDatabase(":memory:");
+  const server = createTestServer({
+    database,
+    prepareImage: prepareWhiteboardImage,
+    recognise: (image) => recogniseWhiteboard(image, { apiKey: "" })
+  });
+  resources.push({ database, server });
+  return { baseUrl: startServer(server) };
 }
 
 describe("purchasing API routes", () => {
@@ -319,24 +336,49 @@ describe("purchasing API routes", () => {
     });
   });
 
-  it("returns the stable Chinese missing-key error JSON", async () => {
-    const { baseUrl, options } = routeOptions();
-    (options.recognise as ReturnType<typeof vi.fn>).mockRejectedValueOnce({
-      code: "MISSING_API_KEY",
-      message: "服务器尚未配置 AI 识别密钥。",
-      status: 500
-    });
-    const upload = uploadBody();
+  it("returns missing-key and image-validation errors through the real scan route", async () => {
+    const { baseUrl } = realSmokeRouteOptions();
+    const endpoint = `${await baseUrl}/api/purchasing/scan-whiteboard`;
+    const validPng = await sharp({
+      create: { width: 2, height: 2, channels: 3, background: "white" }
+    })
+      .png()
+      .toBuffer();
 
-    const response = await fetch(`${await baseUrl}/api/purchasing/scan-whiteboard`, {
-      body: upload.body,
-      headers: { "Content-Type": upload.contentType },
+    const missingKeyUpload = uploadBody(validPng, "image/png");
+    const missingKeyResponse = await fetch(endpoint, {
+      body: missingKeyUpload.body,
+      headers: { "Content-Type": missingKeyUpload.contentType },
       method: "POST"
     });
 
-    expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({
+    expect(missingKeyResponse.status).toBe(500);
+    await expect(missingKeyResponse.json()).resolves.toEqual({
       error: { code: "MISSING_API_KEY", message: "服务器尚未配置 AI 识别密钥。" }
+    });
+
+    const unsupportedUpload = uploadBody(Buffer.from("not an image"));
+    const unsupportedResponse = await fetch(endpoint, {
+      body: unsupportedUpload.body,
+      headers: { "Content-Type": unsupportedUpload.contentType },
+      method: "POST"
+    });
+
+    expect(unsupportedResponse.status).toBe(415);
+    await expect(unsupportedResponse.json()).resolves.toMatchObject({
+      error: { code: "UNSUPPORTED_IMAGE_FORMAT" }
+    });
+
+    const oversizedUpload = uploadBody(Buffer.alloc(15 * 1024 * 1024 + 1));
+    const oversizedResponse = await fetch(endpoint, {
+      body: oversizedUpload.body,
+      headers: { "Content-Type": oversizedUpload.contentType },
+      method: "POST"
+    });
+
+    expect(oversizedResponse.status).toBe(413);
+    await expect(oversizedResponse.json()).resolves.toMatchObject({
+      error: { code: "IMAGE_TOO_LARGE" }
     });
   });
 

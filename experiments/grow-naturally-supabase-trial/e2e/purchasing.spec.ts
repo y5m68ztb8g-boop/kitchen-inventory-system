@@ -18,6 +18,12 @@ const scanResponse = {
   unreadableText: ["lower-right note"]
 };
 
+async function expectNoHorizontalOverflow(page: Parameters<typeof test>[0]["page"]) {
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+    .toBe(true);
+}
+
 test.describe("purchasing whiteboard flow", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -71,11 +77,14 @@ test.describe("purchasing whiteboard flow", () => {
     await expect(page.getByRole("img", { name: "采购白板预览" })).toBeVisible();
     await expect(page.getByRole("button", { name: "开始识别" })).toBeVisible();
     expect(scanRequests).toBe(0);
+    await expectNoHorizontalOverflow(page);
 
     await page.getByRole("button", { name: "开始识别" }).click();
     await expect(page.getByRole("heading", { name: "核对采购项目" })).toBeVisible();
     await expect(page.getByTestId("purchase-review-row-1")).toBeVisible();
+    await expect(page.getByTestId("purchase-review-row-1")).toHaveClass(/purchase-review-row-low-confidence/);
     await expect(page.getByRole("button", { name: "确认保存" })).toBeDisabled();
+    await expectNoHorizontalOverflow(page);
 
     await page.getByLabel("产品名称 1").fill("Chicken Breast");
     await page.getByLabel("已人工核对 1").check();
@@ -84,11 +93,16 @@ test.describe("purchasing whiteboard flow", () => {
     await expect(page.getByRole("heading", { name: "采购项目已保存" })).toBeVisible();
     await expect(page.getByText("Pending", { exact: true })).toBeVisible();
     await expect(page.getByText("Brakes", { exact: true })).toBeVisible();
+    await expect(page.getByText("BRK", { exact: true })).toBeVisible();
+    await expect(page.getByText("CHICKEN-1", { exact: true })).toBeVisible();
+    await expect(page.getByText("2x5kg", { exact: true })).toBeVisible();
+    await expect(page.getByText("£24.50", { exact: true })).toBeVisible();
+    await expect(page.getByText("10", { exact: true })).toBeVisible();
+    await expect(page.getByText("2026-07-01", { exact: true })).toBeVisible();
+    await expect(page.getByText("7", { exact: true })).toBeVisible();
     expect(confirmationBody).toMatchObject({
       items: [expect.objectContaining({ manualReviewed: true, product_name: "Chicken Breast" })]
     });
-    await expect
-      .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
-      .toBe(true);
+    await expectNoHorizontalOverflow(page);
   });
 });

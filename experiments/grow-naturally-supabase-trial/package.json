@@ -9,6 +9,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:purchasing": "playwright test e2e/purchasing.spec.ts",
     "preview": "vite preview"
   },
   "dependencies": {
