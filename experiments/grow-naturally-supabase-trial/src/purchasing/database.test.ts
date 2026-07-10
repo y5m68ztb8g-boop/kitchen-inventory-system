@@ -16,6 +16,7 @@ import {
   saveDraftScan
 } from "../../server/purchasing/database";
 import type { PurchaseIntakeItem, SaveIntakeInput } from "../../server/purchasing/intakeSchema";
+import { normaliseProductName } from "../../server/purchasing/matching";
 
 const openDatabases: Database.Database[] = [];
 const temporaryDirectories: string[] = [];
@@ -33,6 +34,29 @@ function createDatabase() {
   const database = createPurchasingDatabase(":memory:");
   openDatabases.push(database);
   return database;
+}
+
+type StoredMatchFeedback = {
+  confirmationCount: number;
+  lastConfirmedAt: string;
+  supplierProductId: string;
+};
+
+function readMatchFeedback(
+  database: Database.Database,
+  productName: string,
+  supplierProductId: string
+): StoredMatchFeedback | undefined {
+  return database
+    .prepare(
+      `SELECT confirmation_count AS confirmationCount,
+              last_confirmed_at AS lastConfirmedAt,
+              supplier_product_id AS supplierProductId
+         FROM purchase_match_feedback
+        WHERE normalised_name = ?
+          AND supplier_product_id = ?`
+    )
+    .get(normaliseProductName(productName), supplierProductId) as StoredMatchFeedback | undefined;
 }
 
 function saveDraft(database: Database.Database, id = "scan-1") {
@@ -218,6 +242,113 @@ describe("generic purchase intakes", () => {
       filename: "event-purchases.pdf",
       mimeType: "application/pdf"
     });
+  });
+
+  it("tracks supplier-product feedback from repeated pending saves and changed selections", () => {
+    const database = createDatabase();
+
+    savePendingIntake(
+      database,
+      intakeWith({
+        items: [
+          reviewedItem({
+            clientId: "row-1",
+            product_name: "Haddock",
+            supplierProductId: "CMP-28HADFZIQF",
+            supplierProductCode: "CMP-28HADFZIQF"
+          })
+        ]
+      })
+    );
+    savePendingIntake(
+      database,
+      intakeWith({
+        items: [
+          reviewedItem({
+            clientId: "row-1",
+            product_name: "Haddock",
+            supplierProductId: "CMP-28HADFZIQF",
+            supplierProductCode: "CMP-28HADFZIQF"
+          })
+        ]
+      })
+    );
+
+    expect(readMatchFeedback(database, "haddock", "CMP-28HADFZIQF")?.confirmationCount).toBe(1);
+
+    savePendingIntake(
+      database,
+      intakeWith({
+        items: [
+          reviewedItem({
+            clientId: "row-1",
+            product_name: "Haddock",
+            supplierProductId: "CMP-OTHER",
+            supplierProductCode: "CMP-OTHER"
+          })
+        ]
+      })
+    );
+    expect(readMatchFeedback(database, "haddock", "CMP-OTHER")?.confirmationCount).toBe(1);
+
+    savePendingIntake(
+      database,
+      intakeWith({
+        items: [reviewedItem({ clientId: "row-1", product_name: "Haddock", supplierProductId: null })]
+      })
+    );
+    expect(readMatchFeedback(database, "haddock", "CMP-28HADFZIQF")?.confirmationCount).toBe(1);
+
+    savePendingIntake(
+      database,
+      intakeWith({
+        items: [
+          reviewedItem({
+            clientId: "row-1",
+            product_name: "Haddock",
+            supplierProductId: "CMP-28HADFZIQF",
+            supplierProductCode: "CMP-28HADFZIQF"
+          })
+        ]
+      })
+    );
+    expect(readMatchFeedback(database, "haddock", "CMP-28HADFZIQF")?.confirmationCount).toBe(2);
+  });
+
+  it("records handoff feedback and does not double count when post-handoff save is rejected", () => {
+    const database = createDatabase();
+    saveDraftIntake(database, intakeWith());
+
+    handOffIntakeToPurchasing(database, {
+      handedOffAt: "2026-07-10T10:00:00.000Z",
+      intakeId: "intake-1",
+      items: [
+        reviewedItem({
+          clientId: "row-1",
+          product_name: "Haddock",
+          supplierProductId: "CMP-28HADFZIQF",
+          supplierProductCode: "CMP-28HADFZIQF"
+        })
+      ]
+    });
+
+    expect(readMatchFeedback(database, "haddock", "CMP-28HADFZIQF")?.confirmationCount).toBe(1);
+
+    expect(() =>
+      savePendingIntake(
+        database,
+        intakeWith({
+          items: [
+            reviewedItem({
+              clientId: "row-1",
+              supplierProductId: "CMP-28HADFZIQF",
+              supplierProductCode: "CMP-28HADFZIQF"
+            })
+          ]
+        })
+      )
+    ).toThrowError(expect.objectContaining({ code: "INVALID_REVIEW_DATA" }));
+    expect(readMatchFeedback(database, "haddock", "CMP-28HADFZIQF")?.confirmationCount).toBe(1);
   });
 
   it("keeps draft intakes in SQLite without marking them ready for purchase", () => {

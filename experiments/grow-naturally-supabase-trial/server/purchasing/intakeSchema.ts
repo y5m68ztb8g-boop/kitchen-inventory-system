@@ -91,4 +91,22 @@ export const purchaseIntakeSchema = `
     updated_at TEXT NOT NULL,
     FOREIGN KEY (intake_id) REFERENCES purchase_intakes(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS purchase_match_feedback (
+    normalised_name TEXT NOT NULL,
+    supplier_product_id TEXT NOT NULL,
+    confirmation_count INTEGER NOT NULL CHECK (confirmation_count > 0),
+    last_confirmed_at TEXT NOT NULL,
+    PRIMARY KEY (normalised_name, supplier_product_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS purchase_match_feedback_item_state (
+    intake_id TEXT NOT NULL,
+    client_id TEXT NOT NULL,
+    normalised_name TEXT NOT NULL,
+    supplier_product_id TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (intake_id, client_id),
+    FOREIGN KEY (intake_id) REFERENCES purchase_intakes(id) ON DELETE CASCADE
+  );
 `;

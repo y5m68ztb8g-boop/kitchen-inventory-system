@@ -182,6 +182,76 @@ describe("recommendHistoricalProduct", () => {
 });
 
 describe("rankHistoricalProducts", () => {
+  it("uses feedback to rank same-tier candidates from the same preferred supplier", () => {
+    const ranked = rankHistoricalProducts({
+      productName: "haddock",
+      candidates: [
+        candidate("Haddock fillet", "HADD-1", {
+          id: "z-cmp-chosen",
+          supplierName: "Campbells Prime Meat Ltd",
+          supplierCode: "CMP",
+          purchaseCount: 1,
+          latestPurchaseDate: "2026-07-01"
+        }),
+        candidate("Haddock steak", "HADD-2", {
+          id: "a-cmp-competitor",
+          supplierName: "Campbells Prime Meat Ltd",
+          supplierCode: "CMP",
+          purchaseCount: 1,
+          latestPurchaseDate: "2026-07-01"
+        })
+      ],
+      inventoryEntries: [],
+      feedback: [
+        {
+          confirmationCount: 2,
+          lastConfirmedAt: "2026-07-10T12:00:00.000Z",
+          supplierProductId: "z-cmp-chosen"
+        }
+      ] as const
+    } as Parameters<typeof rankHistoricalProducts>[0] & { feedback: Array<{ confirmationCount: number; lastConfirmedAt: string; supplierProductId: string }> });
+
+    expect(ranked[0]?.id).toBe("z-cmp-chosen");
+  });
+
+  it("keeps feedback within tier and does not outrank a higher semantic match tier", () => {
+    const ranked = rankHistoricalProducts({
+      productName: "haddock",
+      candidates: [
+        candidate("Haddock", "CMP-HIGH", {
+          id: "z-haddock-high",
+          supplierName: "Campbells Prime Meat Ltd",
+          supplierCode: "CMP",
+          latestPurchaseDate: "2026-07-01",
+          purchaseCount: 1
+        }),
+        candidate("Haddock fillet", "CMP-LOW", {
+          id: "a-haddock-low",
+          supplierName: "Campbells Prime Meat Ltd",
+          supplierCode: "CMP",
+          latestPurchaseDate: "2026-07-01",
+          purchaseCount: 1
+        })
+      ],
+      inventoryEntries: [],
+      feedback: [
+        {
+          confirmationCount: 99,
+          lastConfirmedAt: "2026-07-10T12:00:00.000Z",
+          supplierProductId: "a-haddock-low"
+        },
+        {
+          confirmationCount: 2,
+          lastConfirmedAt: "2026-07-01T12:00:00.000Z",
+          supplierProductId: "no-longer-present"
+        }
+      ] as const
+    } as Parameters<typeof rankHistoricalProducts>[0] & { feedback: Array<{ confirmationCount: number; lastConfirmedAt: string; supplierProductId: string }> });
+
+    expect(ranked[0]?.id).toBe("z-haddock-high");
+    expect(ranked.every((item) => item.id !== "no-longer-present")).toBe(true);
+  });
+
   it("excludes candidates below the semantic relevance threshold", () => {
     const ranked = rankHistoricalProducts({
       productName: "orange juice",

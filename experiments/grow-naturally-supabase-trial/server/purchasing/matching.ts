@@ -22,6 +22,12 @@ export type HistoricalInventoryEntry = {
 
 export type HistoricalProductRecommendation = HistoricalRecommendationFields;
 
+export type HistoricalMatchFeedback = {
+  confirmationCount: number;
+  lastConfirmedAt: string;
+  supplierProductId: string;
+};
+
 export type RankedHistoricalProduct = HistoricalProductCandidate &
   HistoricalRecommendationFields & {
     isRecommended: boolean;
@@ -30,6 +36,7 @@ export type RankedHistoricalProduct = HistoricalProductCandidate &
 
 export type HistoricalMatchInput = {
   candidates: HistoricalProductCandidate[];
+  feedback?: HistoricalMatchFeedback[];
   inventoryEntries: HistoricalInventoryEntry[];
   productName: string;
 };
@@ -151,8 +158,12 @@ export function rankHistoricalProducts(input: HistoricalMatchInput): RankedHisto
   const hasPreferredSupplier = semanticCandidates.some(
     ({ candidate }) => candidate.supplierName === preferredSupplier
   );
+  const feedbackBySupplierProductId = new Map(
+    input.feedback?.map((feedback) => [feedback.supplierProductId, feedback])
+  );
   const ranked = semanticCandidates
     .map(({ candidate, semantic }) => ({
+      feedback: feedbackBySupplierProductId.get(candidate.id),
       ...candidate,
       currentInventoryQuantity: currentInventoryQuantity(
         candidate,
@@ -180,6 +191,8 @@ export function rankHistoricalProducts(input: HistoricalMatchInput): RankedHisto
       (left, right) =>
         right.matchTier - left.matchTier ||
         Number(right.preferredSupplier) - Number(left.preferredSupplier) ||
+        (right.feedback?.confirmationCount ?? 0) - (left.feedback?.confirmationCount ?? 0) ||
+        parseDate(right.feedback?.lastConfirmedAt ?? "") - parseDate(left.feedback?.lastConfirmedAt ?? "") ||
         Number(right.currentInventoryQuantity > 0) - Number(left.currentInventoryQuantity > 0) ||
         right.purchaseCount - left.purchaseCount ||
         parseDate(right.latestPurchaseDate) - parseDate(left.latestPurchaseDate) ||
@@ -187,7 +200,7 @@ export function rankHistoricalProducts(input: HistoricalMatchInput): RankedHisto
         left.id.localeCompare(right.id)
     );
 
-  return ranked.map(({ matchTier, preferredSupplier, semanticScore, ...candidate }, index) => ({
+  return ranked.map(({ feedback, matchTier, preferredSupplier, semanticScore, ...candidate }, index) => ({
     ...candidate,
     isRecommended: index === 0
   }));

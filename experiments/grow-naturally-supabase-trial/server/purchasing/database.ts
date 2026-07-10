@@ -10,6 +10,7 @@ import {
   type PurchaseIntakeStatus,
   type SaveIntakeInput
 } from "./intakeSchema";
+import { normaliseProductName } from "./matching";
 
 export type DraftScanInput = {
   aiModel: string;
@@ -36,6 +37,12 @@ export type HistoricalRecommendationFields = {
   recommendedSupplierCode: string | null;
   recommendedSupplierName: string | null;
   recommendedSupplierProductId: string | null;
+};
+
+export type StoredMatchFeedback = {
+  confirmationCount: number;
+  lastConfirmedAt: string;
+  supplierProductId: string;
 };
 
 export type ConfirmedWhiteboardItem = WhiteboardReviewItem & Partial<HistoricalRecommendationFields>;
@@ -164,6 +171,7 @@ export function handOffIntakeToPurchasing(database: Database.Database, input: Ha
     }
 
     replaceIntakeItems(database, input.intakeId, input.items, handedOffAt);
+    recordMatchFeedback(database, input.intakeId, input.items, handedOffAt);
     database
       .prepare(
         `UPDATE purchase_intakes
@@ -186,6 +194,22 @@ export function getIntakeSource(database: Database.Database, intakeId: string) {
     .get(intakeId) as { buffer: Buffer; filename: string; mimeType: string } | undefined;
 
   return row ?? null;
+}
+
+export function listMatchFeedback(
+  database: Database.Database,
+  normalisedName: string
+): StoredMatchFeedback[] {
+  return database
+    .prepare(
+      `SELECT confirmation_count AS confirmationCount,
+              last_confirmed_at AS lastConfirmedAt,
+              supplier_product_id AS supplierProductId
+         FROM purchase_match_feedback
+        WHERE normalised_name = ?
+        ORDER BY confirmation_count DESC, last_confirmed_at DESC, supplier_product_id ASC`
+    )
+    .all(normalisedName) as StoredMatchFeedback[];
 }
 
 function persistIntake(database: Database.Database, input: SaveIntakeInput, status: Extract<PurchaseIntakeStatus, "Draft" | "Pending">) {
@@ -235,11 +259,78 @@ function persistIntake(database: Database.Database, input: SaveIntakeInput, stat
         input.generalNotes,
         savedAt,
         savedAt
-      );
+    );
     replaceIntakeItems(database, input.id, input.items, savedAt);
+    if (status === "Pending") {
+      recordMatchFeedback(database, input.id, input.items, savedAt);
+    }
   });
 
   save();
+}
+
+function recordMatchFeedback(
+  database: Database.Database,
+  intakeId: string,
+  items: PurchaseIntakeItem[],
+  confirmedAt: string
+) {
+  const stateForItem = database.prepare(
+    `SELECT normalised_name AS normalisedName, supplier_product_id AS supplierProductId
+       FROM purchase_match_feedback_item_state
+      WHERE intake_id = ? AND client_id = ?`
+  );
+  const staleClientIds = database.prepare(
+    "SELECT client_id AS clientId FROM purchase_match_feedback_item_state WHERE intake_id = ?"
+  );
+  const deleteItemState = database.prepare(
+    "DELETE FROM purchase_match_feedback_item_state WHERE intake_id = ? AND client_id = ?"
+  );
+  const upsertFeedback = database.prepare(
+    `INSERT INTO purchase_match_feedback (
+       normalised_name, supplier_product_id, confirmation_count, last_confirmed_at
+     ) VALUES (?, ?, 1, ?)
+     ON CONFLICT(normalised_name, supplier_product_id) DO UPDATE SET
+       confirmation_count = confirmation_count + 1,
+       last_confirmed_at = excluded.last_confirmed_at`
+  );
+  const upsertItemState = database.prepare(
+    `INSERT INTO purchase_match_feedback_item_state (
+       intake_id, client_id, normalised_name, supplier_product_id, updated_at
+     ) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(intake_id, client_id) DO UPDATE SET
+       normalised_name = excluded.normalised_name,
+       supplier_product_id = excluded.supplier_product_id,
+       updated_at = excluded.updated_at`
+  );
+  const clientIds = new Set(items.map((item) => item.clientId));
+
+  for (const { clientId } of staleClientIds.all(intakeId) as Array<{ clientId: string }>) {
+    if (!clientIds.has(clientId)) {
+      deleteItemState.run(intakeId, clientId);
+    }
+  }
+
+  for (const item of items) {
+    if (!item.supplierProductId) {
+      deleteItemState.run(intakeId, item.clientId);
+      continue;
+    }
+
+    const normalisedName = normaliseProductName(item.product_name);
+    const currentState = stateForItem.get(intakeId, item.clientId) as
+      | { normalisedName: string; supplierProductId: string }
+      | undefined;
+    if (
+      currentState?.normalisedName === normalisedName &&
+      currentState.supplierProductId === item.supplierProductId
+    ) {
+      continue;
+    }
+
+    upsertFeedback.run(normalisedName, item.supplierProductId, confirmedAt);
+    upsertItemState.run(intakeId, item.clientId, normalisedName, item.supplierProductId, confirmedAt);
+  }
 }
 
 function replaceIntakeItems(
