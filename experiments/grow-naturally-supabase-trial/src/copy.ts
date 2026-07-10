@@ -8,7 +8,7 @@ export type AppCopy = {
     moduleGroupLabel: string;
     search: string;
     area: string;
-    futureModule: string;
+    purchasing: string;
     totalValue: string;
   };
   routes: {
@@ -36,7 +36,7 @@ const COPY: Record<Locale, AppCopy> = {
       moduleGroupLabel: "主功能入口",
       search: "搜索",
       area: "区域",
-      futureModule: "未来功能预留",
+      purchasing: "采购",
       totalValue: "产品库存总金额"
     },
     routes: {
@@ -60,7 +60,7 @@ const COPY: Record<Locale, AppCopy> = {
       moduleGroupLabel: "Main destinations",
       search: "Search",
       area: "Area",
-      futureModule: "Future feature space",
+      purchasing: "Purchasing",
       totalValue: "Total Inventory Value"
     },
     routes: {

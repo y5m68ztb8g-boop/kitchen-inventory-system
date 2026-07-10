@@ -46,6 +46,8 @@ describe("Home", () => {
   it("keeps Chinese and English copy available for future switching", () => {
     expect(getCopy("zh-CN").home.search).toBe("搜索");
     expect(getCopy("en-GB").home.search).toBe("Search");
+    expect(getCopy("zh-CN").home.purchasing).toBe("采购");
+    expect(getCopy("en-GB").home.purchasing).toBe("Purchasing");
     expect(getCopy("zh-CN").home.totalValue).toBe("产品库存总金额");
     expect(getCopy("en-GB").home.totalValue).toBe("Total Inventory Value");
   });
@@ -55,12 +57,26 @@ describe("Home", () => {
 
     expect(screen.getByRole("button", { name: /搜索/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /区域/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "采购" })).toHaveAttribute("href", "#purchasing");
     expect(screen.getByRole("link", { name: /产品库存总金额/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "冷冻库金额" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "冷藏库金额" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "干货库金额" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "酒水库金额" })).toBeInTheDocument();
-    expect(screen.getByLabelText("未来功能预留")).toBeInTheDocument();
+    expect(screen.queryByLabelText("未来功能预留")).not.toBeInTheDocument();
+  });
+
+  it("opens purchasing from home while preserving inventory links", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "区域" }));
+    expect(screen.getByRole("link", { name: "冷冻库" })).toHaveAttribute("href", "#freezer");
+
+    await user.click(screen.getByRole("link", { name: "采购" }));
+
+    expect(screen.getByRole("heading", { name: "采购白板识别" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Scan Purchase Whiteboard" })).toBeInTheDocument();
   });
 
   it("opens search input inside the home page", async () => {
@@ -327,7 +343,7 @@ describe("Home", () => {
     await user.type(screen.getByPlaceholderText("输入产品名称"), "Chicken Breast");
     expect(screen.getByText("库存：7 Cases")).toBeInTheDocument();
 
-    await user.click(screen.getByLabelText("未来功能预留"));
+    await user.click(screen.getByRole("button", { name: "区域" }));
 
     expect(screen.queryByText("库存：7 Cases")).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText("输入产品名称")).toHaveValue("Chicken Breast");

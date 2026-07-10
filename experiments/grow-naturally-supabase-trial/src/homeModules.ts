@@ -1,10 +1,10 @@
-import { BadgePoundSterling, MapPinned, Search } from "lucide-react";
+import { BadgePoundSterling, ClipboardList, MapPinned, Search } from "lucide-react";
 import type { ComponentType } from "react";
 
 import type { AppCopy } from "./copy";
 
 export type HomeModule = {
-  id: "search" | "area" | "future" | "valuation";
+  id: "search" | "area" | "purchasing" | "valuation";
   label: string;
   href?: string;
   ariaLabel: string;
@@ -28,9 +28,11 @@ export function getHomeModules(copy: AppCopy, totalValue = "£0.00"): HomeModule
       Icon: MapPinned
     },
     {
-      id: "future",
-      label: "",
-      ariaLabel: copy.home.futureModule
+      id: "purchasing",
+      label: copy.home.purchasing,
+      href: "#purchasing",
+      ariaLabel: copy.home.purchasing,
+      Icon: ClipboardList
     },
     {
       id: "valuation",

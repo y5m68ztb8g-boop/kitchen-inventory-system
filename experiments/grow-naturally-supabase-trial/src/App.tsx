@@ -5,6 +5,7 @@ import { CloudSyncPage } from "./CloudSyncPage";
 import { DryStorePage } from "./DryStorePage";
 import { FreezerPage } from "./FreezerPage";
 import { Home } from "./Home";
+import { PurchasingPage } from "./PurchasingPage";
 import { SearchPage } from "./SearchPage";
 import { StorageAreaPage } from "./StorageAreaPage";
 import { ValuationPage } from "./ValuationPage";
@@ -25,6 +26,10 @@ export function App() {
 
   if (route === "search") {
     return <SearchPage />;
+  }
+
+  if (route === "purchasing") {
+    return <PurchasingPage />;
   }
 
   if (route === "freezer") {
