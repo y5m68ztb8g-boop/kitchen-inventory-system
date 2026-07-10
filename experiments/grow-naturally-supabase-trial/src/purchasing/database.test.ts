@@ -315,6 +315,44 @@ describe("generic purchase intakes", () => {
     expect(readMatchFeedback(database, "haddock", "CMP-28HADFZIQF")?.confirmationCount).toBe(2);
   });
 
+  it("does not double count feedback when handoff keeps the same product match", () => {
+    const database = createDatabase();
+
+    savePendingIntake(
+      database,
+      intakeWith({
+        items: [
+          reviewedItem({
+            clientId: "row-1",
+            product_name: "Haddock",
+            supplierProductId: "CMP-28HADFZIQF",
+            supplierProductCode: "CMP-28HADFZIQF"
+          })
+        ]
+      })
+    );
+
+    expect(readMatchFeedback(database, "haddock", "CMP-28HADFZIQF")?.confirmationCount).toBe(1);
+
+    handOffIntakeToPurchasing(database, {
+      handedOffAt: "2026-07-10T10:00:00.000Z",
+      intakeId: "intake-1",
+      items: [
+        reviewedItem({
+          clientId: "row-1",
+          product_name: "Haddock",
+          supplierProductId: "CMP-28HADFZIQF",
+          supplierProductCode: "CMP-28HADFZIQF"
+        })
+      ]
+    });
+
+    expect(database.prepare("SELECT status FROM purchase_intakes WHERE id = ?").get("intake-1")).toEqual({
+      status: "ReadyForPurchase"
+    });
+    expect(readMatchFeedback(database, "haddock", "CMP-28HADFZIQF")?.confirmationCount).toBe(1);
+  });
+
   it("records handoff feedback and does not double count when post-handoff save is rejected", () => {
     const database = createDatabase();
     saveDraftIntake(database, intakeWith());
