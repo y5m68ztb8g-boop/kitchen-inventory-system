@@ -484,7 +484,7 @@ describe("rankHistoricalProducts", () => {
       supplierCode: "CMP",
       purchaseCount: 1
     });
-    const frequentCampbellsHaddock = candidate("Haddock 8-10oz", "CMP-28HADFZIQF", {
+    const frequentCampbellsHaddock = candidate("Haddock 8-10oz", "28HADFZIQF", {
       supplierName: "Campbells Prime Meat Ltd",
       supplierCode: "CMP",
       purchaseCount: 30,
@@ -507,7 +507,7 @@ describe("rankHistoricalProducts", () => {
       ]
     });
 
-    expect(ranked[0]?.supplierProductCode).toBe("CMP-28HADFZIQF");
+    expect(ranked[0]?.supplierProductCode).toBe("28HADFZIQF");
     expect(ranked.some((item) => item.supplierProductCode === "PRW-1")).toBe(false);
   });
 
