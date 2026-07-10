@@ -42,19 +42,45 @@ describe("Home", () => {
 
   function mockMatchMedia(matches: boolean) {
     const originalMatchMedia = window.matchMedia;
-    window.matchMedia = vi.fn((query: string) => ({
-      matches: query === MOBILE_SEARCH_MEDIA_QUERY && matches,
-      media: query,
+    let currentMatches = matches;
+    const changeListeners = new Set<(event: MediaQueryListEvent) => void>();
+    const addEventListener = vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {
+      if (type === "change" && typeof listener === "function") {
+        changeListeners.add(listener as (event: MediaQueryListEvent) => void);
+      }
+    });
+    const removeEventListener = vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {
+      if (type === "change" && typeof listener === "function") {
+        changeListeners.delete(listener as (event: MediaQueryListEvent) => void);
+      }
+    });
+    const mediaQueryList = {
+      get matches() {
+        return currentMatches;
+      },
+      media: MOBILE_SEARCH_MEDIA_QUERY,
       onchange: null,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
+      addEventListener,
+      removeEventListener,
       addListener: vi.fn(),
       removeListener: vi.fn(),
       dispatchEvent: vi.fn(() => true)
-    }) as MediaQueryList);
+    } as MediaQueryList;
+
+    window.matchMedia = vi.fn(() => mediaQueryList);
 
     restoreMatchMedia = () => {
       window.matchMedia = originalMatchMedia;
+    };
+
+    return {
+      addEventListener,
+      removeEventListener,
+      triggerChange(nextMatches: boolean) {
+        currentMatches = nextMatches;
+        const event = { matches: nextMatches, media: MOBILE_SEARCH_MEDIA_QUERY } as MediaQueryListEvent;
+        changeListeners.forEach((listener) => listener(event));
+      }
     };
   }
 
@@ -160,6 +186,7 @@ describe("Home", () => {
   it("closes mobile search on Escape", async () => {
     const user = userEvent.setup();
     mockMatchMedia(true);
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => undefined);
     render(<App />);
 
     await user.click(screen.getByRole("button", { name: "搜索" }));
@@ -170,6 +197,14 @@ describe("Home", () => {
     const searchButton = screen.getByRole("button", { name: "搜索" });
     expect(searchButton).toBeInTheDocument();
     expect(searchButton).toHaveFocus();
+    expect(back).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      dispatchPopStateWithSearchState({ homeSearchOpen: true });
+    });
+
+    expect(screen.queryByRole("button", { name: "关闭搜索" })).not.toBeInTheDocument();
+    expect(back).toHaveBeenCalledTimes(1);
 
     await user.click(searchButton);
 
@@ -180,6 +215,7 @@ describe("Home", () => {
   it("closes mobile search when a popstate event is received", async () => {
     const user = userEvent.setup();
     mockMatchMedia(true);
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => undefined);
     render(<App />);
 
     await user.click(screen.getByRole("button", { name: "搜索" }));
@@ -193,6 +229,7 @@ describe("Home", () => {
     expect(screen.queryByRole("button", { name: "关闭搜索" })).not.toBeInTheDocument();
     const searchButton = screen.getByRole("button", { name: "搜索" });
     expect(searchButton).toBeInTheDocument();
+    expect(back).not.toHaveBeenCalled();
 
     await user.click(searchButton);
 
@@ -203,12 +240,22 @@ describe("Home", () => {
   it("returns focus to search trigger after mobile close", async () => {
     const user = userEvent.setup();
     mockMatchMedia(true);
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => undefined);
     render(<App />);
 
     await user.click(screen.getByRole("button", { name: "搜索" }));
     await user.click(screen.getByRole("button", { name: "关闭搜索" }));
 
     expect(screen.getByRole("button", { name: "搜索" })).toHaveFocus();
+    expect(back).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      dispatchPopStateWithSearchState({ homeSearchOpen: true });
+    });
+
+    expect(screen.queryByRole("button", { name: "关闭搜索" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "搜索" })).toBeInTheDocument();
+    expect(back).toHaveBeenCalledTimes(1);
   });
 
   it("pushes one history entry per mobile search open", async () => {
@@ -236,6 +283,28 @@ describe("Home", () => {
 
     expect(screen.queryByRole("button", { name: "关闭搜索" })).not.toBeInTheDocument();
     expect(pushState).not.toHaveBeenCalled();
+  });
+
+  it("responds to matchMedia changes and removes the same listener on unmount", async () => {
+    const user = userEvent.setup();
+    const { addEventListener, removeEventListener, triggerChange } = mockMatchMedia(false);
+    const pushState = vi.spyOn(window.history, "pushState");
+    const { unmount } = render(<App />);
+    const changeListener = addEventListener.mock.calls.find(([type]) => type === "change")?.[1];
+
+    expect(changeListener).toEqual(expect.any(Function));
+
+    act(() => {
+      triggerChange(true);
+    });
+    await user.click(screen.getByRole("button", { name: "搜索" }));
+
+    expect(screen.getByRole("button", { name: "关闭搜索" })).toBeVisible();
+    expect(pushState).toHaveBeenCalledTimes(1);
+
+    unmount();
+
+    expect(removeEventListener).toHaveBeenCalledWith("change", changeListener);
   });
 
   it("searches invoice history and supplier code from the upper search field", async () => {
@@ -279,6 +348,50 @@ describe("Home", () => {
 
     expect(writeText).toHaveBeenCalledWith("135177");
     expect(screen.getByText("已复制")).toBeInTheDocument();
+  });
+
+  it("does not restore copied state when clipboard completion arrives after mobile search closes", async () => {
+    const user = userEvent.setup();
+    mockMatchMedia(true);
+    vi.spyOn(window.history, "back").mockImplementation(() => undefined);
+    let resolveWriteText: (() => void) | undefined;
+    const writeTextPromise = new Promise<void>((resolve) => {
+      resolveWriteText = resolve;
+    });
+    const writeText = vi.fn(() => writeTextPromise);
+    const originalClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText }
+    });
+
+    try {
+      render(<App />);
+
+      await user.click(screen.getByRole("button", { name: "搜索" }));
+      await user.type(screen.getByPlaceholderText("搜索发票商品 / code"), "F135-177");
+      await user.click(screen.getByRole("button", { name: "复制 135177" }));
+      expect(writeText).toHaveBeenCalledWith("135177");
+
+      await user.click(screen.getByRole("button", { name: "关闭搜索" }));
+
+      await act(async () => {
+        resolveWriteText?.();
+        await writeTextPromise;
+      });
+
+      await user.click(screen.getByRole("button", { name: "搜索" }));
+      await user.type(screen.getByPlaceholderText("搜索发票商品 / code"), "F135-177");
+
+      expect(screen.queryByText("已复制")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "复制 135177" })).toHaveTextContent("复制");
+    } finally {
+      if (originalClipboardDescriptor) {
+        Object.defineProperty(navigator, "clipboard", originalClipboardDescriptor);
+      } else {
+        delete (navigator as Navigator & { clipboard?: Clipboard }).clipboard;
+      }
+    }
   });
 
   it("uses the refreshed Mark Murphy invoice lines for daily milk purchase counts", () => {

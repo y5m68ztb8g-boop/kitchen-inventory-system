@@ -243,6 +243,7 @@ export function Home() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchResultsRef = useRef<HTMLElement>(null);
   const isMountedRef = useRef(true);
+  const copiedSupplierCodeGenerationRef = useRef(0);
   const searchOpenRef = useRef(false);
   const ownsSearchHistoryEntryRef = useRef(false);
   const matchedSourceIds = new Set(
@@ -269,6 +270,7 @@ export function Home() {
   const showSearchResults = searchOpen && Boolean(activeSearchQuery.trim()) && !searchResultsDismissed;
 
   function resetSearch() {
+    copiedSupplierCodeGenerationRef.current += 1;
     setSearchOpen(false);
     setSearchQuery("");
     setInvoiceSearchQuery("");
@@ -392,14 +394,25 @@ export function Home() {
   }, []);
 
   async function copySupplierProductCode(code: string) {
+    const generation = copiedSupplierCodeGenerationRef.current;
+
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(code);
       } else if (!copyTextWithTemporaryInput(code)) {
         throw new Error("Clipboard copy is unavailable.");
       }
+
+      if (generation !== copiedSupplierCodeGenerationRef.current) {
+        return;
+      }
+
       setCopiedSupplierCode(code);
     } catch {
+      if (generation !== copiedSupplierCodeGenerationRef.current) {
+        return;
+      }
+
       setCopiedSupplierCode(copyTextWithTemporaryInput(code) ? code : "");
     }
   }
