@@ -239,7 +239,7 @@ export function PurchasingPage() {
     if (event.key !== "Tab" || !sourceDialogRef.current) {
       return;
     }
-    const focusable = [...sourceDialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled])')];
+    const focusable = [...sourceDialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), iframe')];
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
     if (!first || !last) {
