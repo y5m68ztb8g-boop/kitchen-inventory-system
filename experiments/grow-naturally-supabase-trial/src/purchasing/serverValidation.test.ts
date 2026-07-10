@@ -6,6 +6,7 @@ import type { IncomingMessage } from "node:http";
 import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
+import * as xlsx from "xlsx";
 import { readMultipartIntakeFile } from "../../server/purchasing/intakeFiles";
 import {
   COMPRESSION_THRESHOLD_BYTES,
@@ -33,6 +34,27 @@ async function makeTestImage(format: "jpeg" | "png" | "webp") {
   }
 }
 
+function makePdfFixture() {
+  return Buffer.from("%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n");
+}
+
+function makeSpreadsheetBuffer(sheetType: "xlsx" | "xls") {
+  const workbook = xlsx.utils.book_new();
+  const worksheet = xlsx.utils.aoa_to_sheet([
+    ["product_name", "quantity"],
+    ["Bread rolls", "1"]
+  ]);
+  xlsx.utils.book_append_sheet(workbook, worksheet, "Sheet1");
+  return xlsx.write(workbook, {
+    type: "buffer",
+    bookType: sheetType
+  });
+}
+
+function makeCsvFixture() {
+  return Buffer.from("product_name,quantity\nBread rolls,1\n");
+}
+
 function intakeUploadRequest(mimeType: string, value: Buffer, fieldName = "file") {
   const boundary = "intake-upload-boundary";
   const body = Buffer.concat([
@@ -49,6 +71,30 @@ function intakeUploadRequest(mimeType: string, value: Buffer, fieldName = "file"
 
 describe("readMultipartIntakeFile", () => {
   it.each([
+    ["image/jpeg", async () => makeTestImage("jpeg")],
+    ["image/png", async () => makeTestImage("png")],
+    ["image/heic", async () => makeTestImage("jpeg")],
+    ["image/heif", async () => makeTestImage("jpeg")],
+    ["image/webp", async () => makeTestImage("webp")],
+    ["application/pdf", async () => makePdfFixture()],
+    ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", async () => makeSpreadsheetBuffer("xlsx")],
+    ["application/vnd.ms-excel", async () => makeSpreadsheetBuffer("xls")],
+    ["text/csv", async () => makeCsvFixture()]
+  ])("accepts the supported intake upload %s", async (mimeType, makeBuffer) => {
+    const buffer = await makeBuffer();
+    const result = await readMultipartIntakeFile(intakeUploadRequest(mimeType, buffer));
+
+    expect(result).toMatchObject({ filename: "purchase-file", mimeType });
+    expect(Buffer.compare(result.buffer, buffer)).toBe(0);
+  });
+
+  it("rejects an unsupported intake upload format", async () => {
+    await expect(readMultipartIntakeFile(intakeUploadRequest("image/gif", Buffer.from("gif")))).rejects.toMatchObject({
+      code: "UNSUPPORTED_INTAKE_FILE"
+    });
+  });
+
+  it.each([
     "image/jpeg",
     "image/png",
     "image/heic",
@@ -58,18 +104,10 @@ describe("readMultipartIntakeFile", () => {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.ms-excel",
     "text/csv"
-  ])("accepts the supported intake upload %s", async (mimeType) => {
-    await expect(readMultipartIntakeFile(intakeUploadRequest(mimeType, Buffer.from("purchase file")))).resolves.toEqual({
-      buffer: Buffer.from("purchase file"),
-      filename: "purchase-file",
-      mimeType
-    });
-  });
-
-  it("rejects an unsupported intake upload format", async () => {
-    await expect(readMultipartIntakeFile(intakeUploadRequest("image/gif", Buffer.from("gif")))).rejects.toMatchObject({
-      code: "UNSUPPORTED_INTAKE_FILE"
-    });
+  ])("rejects a disguised upload for allowed MIME %s", async (mimeType) => {
+    await expect(
+      readMultipartIntakeFile(intakeUploadRequest(mimeType, Buffer.from("not a valid file")))
+    ).rejects.toMatchObject({ code: "UNSUPPORTED_INTAKE_FILE" });
   });
 
   it("rejects an empty intake upload", async () => {

@@ -151,17 +151,29 @@ export function savePendingIntake(database: Database.Database, input: SaveIntake
 export function handOffIntakeToPurchasing(database: Database.Database, input: HandOffIntakeInput) {
   validatePurchaseIntakeItems(input.items);
   const handedOffAt = input.handedOffAt ?? new Date().toISOString();
-  const result = database
-    .prepare(
-      `UPDATE purchase_intakes
-          SET status = 'ReadyForPurchase', updated_at = ?, handed_off_at = ?
-        WHERE id = ?`
-    )
-    .run(handedOffAt, handedOffAt, input.intakeId);
+  const handOff = database.transaction(() => {
+    const intake = database
+      .prepare("SELECT status FROM purchase_intakes WHERE id = ?")
+      .get(input.intakeId) as { status: PurchaseIntakeStatus } | undefined;
 
-  if (result.changes !== 1) {
-    throw new PurchasingApiError("INTAKE_NOT_FOUND");
-  }
+    if (!intake) {
+      throw new PurchasingApiError("INTAKE_NOT_FOUND");
+    }
+    if (intake.status !== "Draft" && intake.status !== "Pending") {
+      throw new PurchasingApiError("INVALID_REVIEW_DATA");
+    }
+
+    replaceIntakeItems(database, input.intakeId, input.items, handedOffAt);
+    database
+      .prepare(
+        `UPDATE purchase_intakes
+            SET status = 'ReadyForPurchase', updated_at = ?, handed_off_at = ?
+          WHERE id = ?`
+      )
+      .run(handedOffAt, handedOffAt, input.intakeId);
+  });
+
+  handOff();
 }
 
 export function getIntakeSource(database: Database.Database, intakeId: string) {
@@ -178,17 +190,6 @@ export function getIntakeSource(database: Database.Database, intakeId: string) {
 
 function persistIntake(database: Database.Database, input: SaveIntakeInput, status: Extract<PurchaseIntakeStatus, "Draft" | "Pending">) {
   const savedAt = input.createdAt ?? new Date().toISOString();
-  const insertItem = database.prepare(
-    `INSERT INTO purchase_intake_items (
-       id, intake_id, row_order, department, raw_text, product_name, quantity,
-       unit, notes, confidence, manual_reviewed, supplier_product_id,
-       supplier_name, supplier_code, supplier_product_code, supplier_product_name,
-       supplier_pack_size, supplier_last_price, supplier_purchase_count,
-       supplier_last_purchase_date, current_inventory_quantity, created_at, updated_at
-     ) VALUES (
-       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-     )`
-  );
   const save = database.transaction(() => {
     database
       .prepare(
@@ -228,38 +229,58 @@ function persistIntake(database: Database.Database, input: SaveIntakeInput, stat
         savedAt,
         savedAt
       );
-    database.prepare("DELETE FROM purchase_intake_items WHERE intake_id = ?").run(input.id);
-
-    input.items.forEach((item, rowOrder) => {
-      insertItem.run(
-        `${input.id}:${item.clientId}`,
-        input.id,
-        rowOrder,
-        item.department,
-        item.raw_text,
-        item.product_name.trim(),
-        item.quantity,
-        item.unit,
-        item.notes,
-        item.confidence,
-        item.manualReviewed ? 1 : 0,
-        item.supplierProductId ?? null,
-        item.supplierName ?? null,
-        item.supplierCode ?? null,
-        item.supplierProductCode ?? null,
-        item.supplierProductName ?? null,
-        item.supplierPackSize ?? null,
-        item.supplierLastPrice ?? null,
-        item.supplierPurchaseCount ?? null,
-        item.supplierLastPurchaseDate ?? null,
-        item.currentInventoryQuantity ?? null,
-        savedAt,
-        savedAt
-      );
-    });
+    replaceIntakeItems(database, input.id, input.items, savedAt);
   });
 
   save();
+}
+
+function replaceIntakeItems(
+  database: Database.Database,
+  intakeId: string,
+  items: PurchaseIntakeItem[],
+  savedAt: string
+) {
+  const insertItem = database.prepare(
+    `INSERT INTO purchase_intake_items (
+       id, intake_id, row_order, department, raw_text, product_name, quantity,
+       unit, notes, confidence, manual_reviewed, supplier_product_id,
+       supplier_name, supplier_code, supplier_product_code, supplier_product_name,
+       supplier_pack_size, supplier_last_price, supplier_purchase_count,
+       supplier_last_purchase_date, current_inventory_quantity, created_at, updated_at
+     ) VALUES (
+       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+     )`
+  );
+
+  database.prepare("DELETE FROM purchase_intake_items WHERE intake_id = ?").run(intakeId);
+  items.forEach((item, rowOrder) => {
+    insertItem.run(
+      `${intakeId}:${item.clientId}`,
+      intakeId,
+      rowOrder,
+      item.department,
+      item.raw_text,
+      item.product_name.trim(),
+      item.quantity,
+      item.unit,
+      item.notes,
+      item.confidence,
+      item.manualReviewed ? 1 : 0,
+      item.supplierProductId ?? null,
+      item.supplierName ?? null,
+      item.supplierCode ?? null,
+      item.supplierProductCode ?? null,
+      item.supplierProductName ?? null,
+      item.supplierPackSize ?? null,
+      item.supplierLastPrice ?? null,
+      item.supplierPurchaseCount ?? null,
+      item.supplierLastPurchaseDate ?? null,
+      item.currentInventoryQuantity ?? null,
+      savedAt,
+      savedAt
+    );
+  });
 }
 
 function validatePurchaseIntakeItems(items: PurchaseIntakeItem[]) {

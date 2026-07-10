@@ -1,5 +1,7 @@
 import Busboy from "busboy";
 import type { IncomingMessage } from "node:http";
+import sharp from "sharp";
+import * as xlsx from "xlsx";
 import { PurchasingApiError } from "./errors";
 
 export const MAX_INTAKE_UPLOAD_BYTES = 25 * 1024 * 1024;
@@ -85,9 +87,75 @@ export function readMultipartIntakeFile(request: IncomingMessage): Promise<Intak
         reject(new PurchasingApiError("UNSUPPORTED_INTAKE_FILE"));
         return;
       }
-      resolve(upload);
+      void validateIntakeUploadContent(upload)
+        .then(() => resolve(upload))
+        .catch(() => reject(new PurchasingApiError("UNSUPPORTED_INTAKE_FILE")));
     });
 
     request.pipe(busboy);
   });
+}
+
+async function validateIntakeUploadContent(upload: IntakeUpload) {
+  if (upload.mimeType.startsWith("image/")) {
+    await validateImage(upload.buffer);
+    return;
+  }
+
+  if (upload.mimeType === "application/pdf") {
+    if (!upload.buffer.subarray(0, 1024).includes(Buffer.from("%PDF-"))) {
+      throw new Error("Invalid PDF signature");
+    }
+    return;
+  }
+
+  if (
+    upload.mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    upload.mimeType === "application/vnd.ms-excel"
+  ) {
+    const hasXlsxSignature = upload.buffer.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+    const hasXlsSignature = upload.buffer
+      .subarray(0, 8)
+      .equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
+    if (
+      (upload.mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" && !hasXlsxSignature) ||
+      (upload.mimeType === "application/vnd.ms-excel" && !hasXlsSignature)
+    ) {
+      throw new Error("Invalid spreadsheet signature");
+    }
+
+    const workbook = xlsx.read(upload.buffer, { type: "buffer" });
+    if (workbook.SheetNames.length === 0) {
+      throw new Error("Spreadsheet has no worksheets");
+    }
+    return;
+  }
+
+  validateCsv(upload.buffer);
+}
+
+async function validateImage(buffer: Buffer) {
+  const image = sharp(buffer, { failOn: "error", pages: 1 });
+  const metadata = await image.metadata();
+  if (
+    !metadata.width ||
+    !metadata.height ||
+    !["jpeg", "png", "webp", "heif"].includes(metadata.format ?? "") ||
+    (metadata.format === "heif" && metadata.compression === "av1")
+  ) {
+    throw new Error("Unsupported image content");
+  }
+  await image.raw().toBuffer();
+}
+
+function validateCsv(buffer: Buffer) {
+  const text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  if (text.includes("\0") || !/[\r\n]/.test(text) || !/[,;\t]/.test(text)) {
+    throw new Error("Invalid CSV content");
+  }
+
+  const workbook = xlsx.read(buffer, { type: "buffer", raw: true });
+  if (workbook.SheetNames.length === 0) {
+    throw new Error("CSV has no readable rows");
+  }
 }

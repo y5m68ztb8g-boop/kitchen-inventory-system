@@ -248,6 +248,51 @@ describe("generic purchase intakes", () => {
     expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'purchase_orders'").get()).toBeUndefined();
   });
 
+  it("persists the current handoff payload and replaces any prior draft intake rows", () => {
+    const database = createDatabase();
+    saveDraftIntake(
+      database,
+      intakeWith({
+        sourceType: "pdf",
+        items: [
+          reviewedItem({
+            clientId: "legacy-row",
+            product_name: "   ",
+            quantity: -2,
+            manualReviewed: false
+          })
+        ]
+      })
+    );
+
+    expect(database.prepare("SELECT product_name, quantity FROM purchase_intake_items WHERE intake_id = ?").get("intake-1")).toEqual({
+      product_name: "",
+      quantity: -2
+    });
+
+    handOffIntakeToPurchasing(database, {
+      handedOffAt: "2026-07-10T10:00:00.000Z",
+      intakeId: "intake-1",
+      items: [reviewedItem({ clientId: "fresh-row", product_name: "Fresh rolls" })]
+    });
+
+    expect(database.prepare("SELECT status, handed_off_at FROM purchase_intakes WHERE id = ?").get("intake-1")).toEqual({
+      handed_off_at: "2026-07-10T10:00:00.000Z",
+      status: "ReadyForPurchase"
+    });
+    expect(database.prepare("SELECT product_name, quantity FROM purchase_intake_items WHERE intake_id = ?").get("intake-1")).toEqual({
+      product_name: "Fresh rolls",
+      quantity: 4
+    });
+    expect(
+      (
+        database
+          .prepare("SELECT count(*) AS count FROM purchase_intake_items WHERE intake_id = ?")
+          .get("intake-1") as { count: number }
+      ).count
+    ).toBe(1);
+  });
+
   it.each([
     { items: [], name: "no retained items" },
     { items: [reviewedItem({ clientId: "duplicate" }), reviewedItem({ clientId: "duplicate" })], name: "duplicate client IDs" },
@@ -263,6 +308,34 @@ describe("generic purchase intakes", () => {
       expect.objectContaining({ code: "INVALID_REVIEW_DATA" })
     );
     expect(database.prepare("SELECT status FROM purchase_intakes WHERE id = ?").get("intake-1")).toEqual({ status: "Draft" });
+  });
+
+  it("does not change status or rows when handoff validation fails", () => {
+    const database = createDatabase();
+    saveDraftIntake(database, intakeWith({ sourceType: "image" }));
+
+    expect(database.prepare("SELECT status, handed_off_at FROM purchase_intakes WHERE id = ?").get("intake-1")).toEqual({
+      handed_off_at: null,
+      status: "Draft"
+    });
+    expect(database.prepare("SELECT product_name FROM purchase_intake_items WHERE intake_id = ?").all("intake-1")).toEqual([
+      { product_name: "Bread rolls" }
+    ]);
+
+    expect(() =>
+      handOffIntakeToPurchasing(database, {
+        intakeId: "intake-1",
+        items: [reviewedItem({ confidence: 0.79, manualReviewed: false })]
+      })
+    ).toThrowError(expect.objectContaining({ code: "INVALID_REVIEW_DATA" }));
+
+    expect(database.prepare("SELECT status, handed_off_at FROM purchase_intakes WHERE id = ?").get("intake-1")).toEqual({
+      handed_off_at: null,
+      status: "Draft"
+    });
+    expect(database.prepare("SELECT product_name FROM purchase_intake_items WHERE intake_id = ?").all("intake-1")).toEqual([
+      { product_name: "Bread rolls" }
+    ]);
   });
 });
 
