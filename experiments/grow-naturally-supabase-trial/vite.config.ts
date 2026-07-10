@@ -10,8 +10,14 @@ import { buildCurrentInventoryEntries } from "./server/purchasing/currentInvento
 import { recogniseWhiteboard } from "./server/purchasing/openaiWhiteboard";
 import { installPurchasingRoutes } from "./server/purchasing/routes";
 
-const inventoryDatabasePath = resolve(process.cwd(), "local-data", "inventory-db.json");
-const purchasingDatabasePath = resolve(process.cwd(), "local-data", "purchasing.sqlite");
+const inventoryDatabasePath = resolve(
+  process.cwd(),
+  process.env.GROW_NATURALLY_INVENTORY_DB_PATH || resolve("local-data", "inventory-db.json")
+);
+const purchasingDatabasePath = resolve(
+  process.cwd(),
+  process.env.GROW_NATURALLY_PURCHASING_DB_PATH || resolve("local-data", "purchasing.sqlite")
+);
 const emptyInventoryDatabase = {
   deletedFreezerInventoryIds: [],
   dryStore: [],
@@ -176,7 +182,8 @@ async function writeCloudInventoryDatabase(config: SupabaseConfig, database: unk
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const supabaseConfig = getSupabaseConfig(env);
+  const isE2E = process.env.GROW_NATURALLY_E2E === "1" || env.GROW_NATURALLY_E2E === "1";
+  const supabaseConfig = isE2E ? null : getSupabaseConfig(env);
   const cloudSyncStatus: CloudSyncStatus = {
     error: null,
     lastAttemptAt: null,
