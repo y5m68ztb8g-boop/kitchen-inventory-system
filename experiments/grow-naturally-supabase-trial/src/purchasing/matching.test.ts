@@ -354,12 +354,6 @@ describe("rankHistoricalProducts", () => {
       productName: "haddock",
       candidates: [
         candidate("Prawns 1kg", "PRW-1", {
-          id: "z-brakes",
-          supplierName: "Brakes / Sysco GB Ltd",
-          supplierCode: "BRK"
-        }),
-        candidate("Prawns 1kg", "CMP-PRW-1", {
-          id: "a-campbells",
           supplierName: "Campbells Prime Meat Ltd",
           supplierCode: "CMP"
         })
@@ -367,7 +361,7 @@ describe("rankHistoricalProducts", () => {
       inventoryEntries: []
     });
 
-    expect(ranked[0]?.supplierName).toBe("Campbells Prime Meat Ltd");
+    expect(ranked).toEqual([]);
   });
 
   it("defaults to Brakes when no preferred supplier category matches", () => {
@@ -396,22 +390,50 @@ describe("rankHistoricalProducts", () => {
       productName: "milk",
       candidates: [
         candidate("Milk", "BRK-MILK", {
-          id: "z-brakes",
+          id: "a-brakes",
           supplierName: "Brakes / Sysco GB Ltd",
           supplierCode: "BRK",
-          purchaseCount: 8
+          purchaseCount: 1,
+          latestPurchaseDate: "2026-07-01"
         }),
         candidate("Milk", "CMP-MILK", {
-          id: "a-campbells",
+          id: "z-campbells",
           supplierName: "Campbells Prime Meat Ltd",
           supplierCode: "CMP",
-          purchaseCount: 8
+          purchaseCount: 99,
+          latestPurchaseDate: "2025-12-01"
+        })
+      ],
+      inventoryEntries: [{ productName: "Milk", quantity: 10, supplierProduct: { id: "z-campbells" } }]
+    });
+
+    expect(ranked[0]?.supplierName).toBe("Campbells Prime Meat Ltd");
+    expect(ranked[0]?.id).toBe("z-campbells");
+  });
+
+  it("classifies Sea Bass as Campbells seafood preference", () => {
+    const ranked = rankHistoricalProducts({
+      productName: "Sea Bass",
+      candidates: [
+        candidate("Sea Bass", "BRK-SB", {
+          id: "a-brakes",
+          supplierName: "Brakes / Sysco GB Ltd",
+          supplierCode: "BRK",
+          purchaseCount: 5,
+          latestPurchaseDate: "2026-07-01"
+        }),
+        candidate("Sea Bass", "CMP-SB", {
+          id: "z-campbells",
+          supplierName: "Campbells Prime Meat Ltd",
+          supplierCode: "CMP",
+          purchaseCount: 5,
+          latestPurchaseDate: "2026-07-01"
         })
       ],
       inventoryEntries: []
     });
 
-    expect(ranked[0]?.supplierName).toBe("Brakes / Sysco GB Ltd");
+    expect(ranked[0]?.supplierName).toBe("Campbells Prime Meat Ltd");
   });
 
   it("prefers positive stock before zero stock for equally relevant candidates", () => {
@@ -465,19 +487,28 @@ describe("rankHistoricalProducts", () => {
     const frequentCampbellsHaddock = candidate("Haddock 8-10oz", "CMP-28HADFZIQF", {
       supplierName: "Campbells Prime Meat Ltd",
       supplierCode: "CMP",
-      purchaseCount: 30
+      purchaseCount: 30,
+      id: "CMP-28HADFZIQF"
+    });
+    const prawnHaddockFalsePositive = candidate("Prawns 1kg", "PRW-1", {
+      id: "x-prawns",
+      supplierName: "Brakes / Sysco GB Ltd",
+      supplierCode: "BRK",
+      purchaseCount: 200
     });
 
     const ranked = rankHistoricalProducts({
       productName: "haddock",
-      candidates: [porticoHaddock, smokedCampbellsHaddock, frequentCampbellsHaddock],
+      candidates: [porticoHaddock, smokedCampbellsHaddock, frequentCampbellsHaddock, prawnHaddockFalsePositive],
       inventoryEntries: [
         { productName: "Smoked Haddock", quantity: 3, supplierProduct: { id: smokedCampbellsHaddock.id } },
-        { productName: "Haddock 8-10oz", quantity: 2, supplierProduct: { id: frequentCampbellsHaddock.id } }
+        { productName: "Haddock 8-10oz", quantity: 2, supplierProduct: { id: frequentCampbellsHaddock.id } },
+        { productName: "Prawns 1kg", quantity: 9, supplierProduct: { id: prawnHaddockFalsePositive.id } }
       ]
     });
 
     expect(ranked[0]?.supplierProductCode).toBe("CMP-28HADFZIQF");
+    expect(ranked.some((item) => item.supplierProductCode === "PRW-1")).toBe(false);
   });
 
   it("keeps a higher match tier ahead of a preferred supplier", () => {

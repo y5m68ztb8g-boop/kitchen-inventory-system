@@ -116,6 +116,7 @@ export function normaliseProductName(value: string) {
     .replace(/\s+/g, " ")
     .replace(/\bwashing up liquid\b/g, "dishsoap")
     .replace(/\bdish soap\b/g, "dishsoap")
+    .replace(/\bsea bass\b/g, "seabass")
     .replace(/\bsoft drinks?\b/g, "softdrink");
 
   return plain
@@ -150,7 +151,6 @@ export function rankHistoricalProducts(input: HistoricalMatchInput): RankedHisto
   const hasPreferredSupplier = semanticCandidates.some(
     ({ candidate }) => candidate.supplierName === preferredSupplier
   );
-  const effectivePreferredSupplier = hasPreferredSupplier ? preferredSupplier : BRAKES;
   const ranked = semanticCandidates
     .map(({ candidate, semantic }) => ({
       ...candidate,
@@ -174,7 +174,7 @@ export function rankHistoricalProducts(input: HistoricalMatchInput): RankedHisto
         recencyBonus(candidate.latestPurchaseDate, newestPurchaseTime),
       semanticScore: semantic.score,
       matchTier: semantic.tier,
-      preferredSupplier: candidate.supplierName === effectivePreferredSupplier
+      preferredSupplier: hasPreferredSupplier && candidate.supplierName === preferredSupplier
     }))
     .sort(
       (left, right) =>
@@ -246,21 +246,10 @@ function scoreSemanticName(requestedName: string, candidateName: string): Semant
   }
 
   if (overlap >= 0.5) {
-    return { score: overlap * 60, tier: 1 };
-  }
-
-  if (shareProductCategory(requestedTokens, candidateTokens)) {
-    return { score: 35, tier: 1 };
+    return { score: Math.max(35, overlap * 60), tier: 1 };
   }
 
   return { score: 0, tier: 0 };
-}
-
-function shareProductCategory(left: string[], right: string[]) {
-  return (
-    left.some((token) => dairyTerms.has(token)) && right.some((token) => dairyTerms.has(token)) ||
-    left.some((token) => seafoodTerms.has(token)) && right.some((token) => seafoodTerms.has(token))
-  );
 }
 
 function tokenOverlap(left: string[], right: string[]) {
