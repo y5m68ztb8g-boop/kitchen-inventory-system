@@ -6,6 +6,7 @@ import {
   getIntakeSource,
   getScanImage,
   handOffIntakeToPurchasing,
+  listMatchFeedback,
   saveDraftScan,
   saveDraftIntake,
   savePendingIntake,
@@ -22,6 +23,7 @@ import {
   rankHistoricalProducts,
   recommendHistoricalProduct,
   type HistoricalInventoryEntry,
+  type HistoricalMatchFeedback,
   type HistoricalProductCandidate,
   type RankedHistoricalProduct
 } from "./matching";
@@ -118,10 +120,12 @@ export function installPurchasingRoutes(server: PurchasingMiddlewareServer, opti
           return;
         }
         const query = url.searchParams.get("query")?.trim() ?? "";
+        const normalisedQuery = normaliseProductName(query);
         const candidates = await historicalCandidates();
         const inventoryEntries = await historicalInventoryEntries();
+        const feedback = listMatchFeedback(options.database, normalisedQuery);
         sendJson(response, 200, {
-          items: rankedCandidateSearch(query, candidates, inventoryEntries),
+          items: rankedCandidateSearch(query, candidates, inventoryEntries, feedback),
           query
         });
         return;
@@ -425,9 +429,10 @@ async function enrichMatchedItems(
 function rankedCandidateSearch(
   query: string,
   candidates: HistoricalProductCandidate[],
-  inventoryEntries: HistoricalInventoryEntry[]
+  inventoryEntries: HistoricalInventoryEntry[],
+  feedback: HistoricalMatchFeedback[]
 ) {
-  const ranked = rankHistoricalProducts({ candidates, inventoryEntries, productName: query });
+  const ranked = rankHistoricalProducts({ candidates, feedback, inventoryEntries, productName: query });
   const rankedIds = new Set(ranked.map((candidate) => candidate.id));
   const normalisedQuery = normaliseProductName(query);
   const queryTokens = new Set(normalisedQuery.split(" ").filter(Boolean));

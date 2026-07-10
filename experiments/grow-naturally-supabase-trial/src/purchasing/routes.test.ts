@@ -7,7 +7,7 @@ import Database from "better-sqlite3";
 import sharp from "sharp";
 import * as xlsx from "xlsx";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createPurchasingDatabase, getIntakeSource, getScanImage } from "../../server/purchasing/database";
+import { createPurchasingDatabase, getIntakeSource, getScanImage, savePendingIntake } from "../../server/purchasing/database";
 import { buildCurrentInventoryEntries } from "../../server/purchasing/currentInventory";
 import { MAX_UPLOAD_BYTES, prepareWhiteboardImage } from "../../server/purchasing/imagePreparation";
 import { readMultipartImage } from "../../server/purchasing/multipart";
@@ -936,6 +936,131 @@ describe("purchasing API routes", () => {
     } finally {
       route.database.close();
     }
+  });
+
+  it("saves manual historical matching feedback and reuses it in historical search ordering", async () => {
+    const firstCandidates = [
+      {
+        id: "BRK-SAME-A",
+        latestPrice: 14.5,
+        latestPurchaseDate: "2026-07-01",
+        packSize: "2x1kg",
+        productName: "brew cold blend",
+        purchaseCount: 2,
+        supplierCode: "BRK",
+        supplierName: "Brakes",
+        supplierProductCode: "BC-A"
+      },
+      {
+        id: "BRK-SAME-B",
+        latestPrice: 16,
+        latestPurchaseDate: "2026-07-02",
+        packSize: "2x1kg",
+        productName: "blend brew cold",
+        purchaseCount: 12,
+        supplierCode: "BRK",
+        supplierName: "Brakes",
+        supplierProductCode: "BC-B"
+      }
+    ];
+    const secondCandidates = [
+      {
+        id: "BRK-HIGH",
+        latestPrice: 19,
+        latestPurchaseDate: "2026-07-10",
+        packSize: "2x1kg",
+        productName: "cappuccino",
+        purchaseCount: 3,
+        supplierCode: "BRK",
+        supplierName: "Brakes",
+        supplierProductCode: "BC-C"
+      },
+      {
+        id: "BRK-HIGH-LOW",
+        latestPrice: 18,
+        latestPurchaseDate: "2026-07-01",
+        packSize: "2x1kg",
+        productName: "brew cold cappuccino",
+        purchaseCount: 12,
+        supplierCode: "BRK",
+        supplierName: "Brakes",
+        supplierProductCode: "BC-D"
+      }
+    ];
+    const { baseUrl, database } = routeOptions({
+      historicalCandidates: () => firstCandidates,
+      historicalInventoryEntries: () => []
+    });
+    const matchedItem = {
+      clientId: "row-1",
+      confidence: 0.98,
+      department: "Kitchen",
+      manualReviewed: true,
+      notes: null,
+      product_name: "cold brew",
+      quantity: 2,
+      raw_text: "2 cold brew",
+      supplierProductId: "BRK-SAME-A",
+      unit: "case"
+    };
+    savePendingIntake(database, {
+      aiModel: null,
+      id: "feedback-intake-id",
+      generalNotes: "Supplier preference",
+      items: [matchedItem],
+      originalFilename: "event.pdf",
+      originalMimeType: "application/pdf",
+      originalSizeBytes: 1024,
+      sourceBlob: Buffer.from("source-pdf"),
+      sourceType: "pdf",
+      storedMimeType: "application/pdf",
+      storedSizeBytes: 64,
+      unreadableText: []
+    });
+    savePendingIntake(database, {
+      aiModel: null,
+      id: "feedback-intake-id",
+      generalNotes: "Supplier preference",
+      items: [matchedItem],
+      originalFilename: "event.pdf",
+      originalMimeType: "application/pdf",
+      originalSizeBytes: 1024,
+      sourceBlob: Buffer.from("source-pdf"),
+      sourceType: "pdf",
+      storedMimeType: "application/pdf",
+      storedSizeBytes: 64,
+      unreadableText: []
+    });
+    const feedbackRows = database
+      .prepare(
+        "SELECT confirmation_count AS confirmationCount FROM purchase_match_feedback WHERE normalised_name = ? AND supplier_product_id = ?"
+      )
+      .all("cold brew", "BRK-SAME-A") as Array<{ confirmationCount: number }>;
+    expect(feedbackRows).toEqual([{ confirmationCount: 1 }]);
+
+    const sameTierSearch = await fetch(`${await baseUrl}/api/purchasing/historical-products?query=${encodeURIComponent("cold brew")}`);
+    expect(sameTierSearch.status).toBe(200);
+    const sameTierCandidates = parseHistoricalCandidates(await sameTierSearch.json());
+    expect(sameTierCandidates[0]).toMatchObject({
+      id: "BRK-SAME-A",
+      isRecommended: true,
+      productName: "brew cold blend"
+    });
+
+    const { baseUrl: higherBaseUrl } = routeOptions({
+      historicalCandidates: () => secondCandidates,
+      historicalInventoryEntries: () => []
+    });
+    const higherTierSearch = await fetch(
+      `${await higherBaseUrl}/api/purchasing/historical-products?query=${encodeURIComponent("cappuccino")}`
+    );
+    expect(higherTierSearch.status).toBe(200);
+    const higherTierCandidates = parseHistoricalCandidates(await higherTierSearch.json());
+    expect(higherTierCandidates[0]).toMatchObject({
+      id: "BRK-HIGH",
+      isRecommended: true,
+      productName: "cappuccino"
+    });
   });
 
   it("saves a recognised draft, serves its image, and confirms reviewed rows", async () => {
