@@ -315,6 +315,65 @@ describe("generic purchase intakes", () => {
     expect(readMatchFeedback(database, "haddock", "CMP-28HADFZIQF")?.confirmationCount).toBe(2);
   });
 
+  it("stores feedback by match query while persisting canonical product_name on intake rows", () => {
+    const database = createDatabase();
+
+    savePendingIntake(
+      database,
+      intakeWith({
+        id: "intake-1",
+        items: [
+          {
+            ...reviewedItem({
+              clientId: "row-1",
+              product_name: "Brew Cold Blend",
+              supplierProductId: "BRK-CBREW",
+              supplierProductCode: "BRK-CBREW"
+            }),
+            matchQueryName: "cold brew"
+          } as any
+        ]
+      })
+    );
+
+    expect(database.prepare("SELECT product_name FROM purchase_intake_items WHERE intake_id = ?").get("intake-1")).toEqual({
+      product_name: "Brew Cold Blend"
+    });
+    expect(
+      database
+        .prepare(
+          "SELECT confirmation_count AS confirmationCount FROM purchase_match_feedback WHERE normalised_name = ? AND supplier_product_id = ?"
+        )
+        .get("cold brew", "BRK-CBREW")
+    ).toEqual({ confirmationCount: 1 });
+
+    savePendingIntake(
+      database,
+      intakeWith({
+        id: "intake-1",
+        items: [
+          {
+            ...reviewedItem({
+              clientId: "row-1",
+              product_name: "Brew Cold Blend",
+              supplierProductId: "BRK-CBREW",
+              supplierProductCode: "BRK-CBREW"
+            }),
+            matchQueryName: "cold brew"
+          } as any
+        ]
+      })
+    );
+
+    expect(
+      database
+        .prepare(
+          "SELECT confirmation_count AS confirmationCount FROM purchase_match_feedback WHERE normalised_name = ? AND supplier_product_id = ?"
+        )
+        .get("cold brew", "BRK-CBREW")
+    ).toEqual({ confirmationCount: 1 });
+  });
+
   it("does not double count feedback when handoff keeps the same product match", () => {
     const database = createDatabase();
 

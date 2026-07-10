@@ -37,6 +37,7 @@ export type HistoricalProductCard = {
 
 export type PurchaseIntakeReviewItem = WhiteboardReviewItem & {
   currentInventoryQuantity?: number | null;
+  matchQueryName?: string;
   supplierCode: string | null;
   supplierLastPrice: number | null;
   supplierLastPurchaseDate: string | null;

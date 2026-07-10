@@ -80,6 +80,7 @@ const dairyTerms = new Set([
 
 const seafoodTerms = new Set([
   "seafood",
+  "shellfish",
   "fish",
   "haddock",
   "cod",
@@ -275,8 +276,9 @@ function scoreSemanticName(requestedName: string, candidateName: string): Semant
     return { score: 70 + overlap * 20, tier: 2 };
   }
 
-  if (overlap >= 0.5) {
-    return { score: Math.max(35, overlap * 60), tier: 1 };
+  const overlapScore = overlap * 60;
+  if (overlapScore >= 35) {
+    return { score: overlapScore, tier: 1 };
   }
 
   return { score: 0, tier: 0 };

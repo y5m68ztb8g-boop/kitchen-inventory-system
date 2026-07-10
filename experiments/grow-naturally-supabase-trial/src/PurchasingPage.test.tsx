@@ -304,6 +304,70 @@ describe("PurchasingPage recognition and review", () => {
     expect(screen.getByLabelText("产品名称 1")).toHaveValue("Orange Juice");
   });
 
+  it("preserves matchQueryName on save payload while saving canonical match product name", async () => {
+    const user = userEvent.setup();
+    parseIntake.mockResolvedValue({
+      sourceType: "image",
+      sourceUrl: "/api/purchasing/intakes/intake-1/source",
+      originalFilename: "invoice.jpg",
+      intakeId: "intake-1",
+      items: [
+        {
+          confidence: 0.95,
+          department: "厨房",
+          notes: null,
+          product_name: "cold brew",
+          quantity: 2,
+          raw_text: "2 cold brew",
+          unit: "箱"
+        }
+      ],
+      unreadableText: [],
+      generalNotes: null
+    });
+    searchHistoricalProducts.mockResolvedValue({
+      candidates: [
+        {
+          id: "BRK-CBREW",
+          isRecommended: true,
+          productName: "Brew Cold Blend",
+          supplierName: "Brakes",
+          supplierCode: "BRK",
+          supplierProductCode: "BC-1",
+          packSize: "2x6",
+          latestPrice: 29.9,
+          purchaseCount: 7,
+          latestPurchaseDate: "2026-07-01",
+          currentInventoryQuantity: 4
+        }
+      ]
+    });
+
+    render(<PurchasingPage />);
+    const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
+
+    await user.upload(cameraInput, new File(["whiteboard"], "invoice.jpg", { type: "image/jpeg" }));
+    await user.click(screen.getByRole("button", { name: "开始识别" }));
+
+    await user.click(screen.getByRole("button", { name: "匹配发票商品 cold brew" }));
+    expect(await screen.findByText("历史发票商品")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "选择 Brew Cold Blend" }));
+    await user.click(screen.getByRole("button", { name: "保存草稿" }));
+
+    expect(savePendingIntake).toHaveBeenCalledWith(
+      "intake-1",
+      expect.arrayContaining([
+        expect.objectContaining({
+          clientId: expect.any(String),
+          matchQueryName: "cold brew",
+          product_name: "Brew Cold Blend",
+          supplierProductId: "BRK-CBREW"
+        })
+      ])
+    );
+  });
+
   it("transitions pending save and keeps review state before handoff", async () => {
     const user = userEvent.setup();
     render(<PurchasingPage />);

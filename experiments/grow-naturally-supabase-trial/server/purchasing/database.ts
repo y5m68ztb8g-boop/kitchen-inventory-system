@@ -317,7 +317,7 @@ function recordMatchFeedback(
       continue;
     }
 
-    const normalisedName = normaliseProductName(item.product_name);
+    const normalisedName = normaliseProductName(item.matchQueryName ?? item.product_name);
     const currentState = stateForItem.get(intakeId, item.clientId) as
       | { normalisedName: string; supplierProductId: string }
       | undefined;

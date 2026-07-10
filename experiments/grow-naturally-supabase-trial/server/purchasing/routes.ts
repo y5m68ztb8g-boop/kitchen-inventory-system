@@ -79,6 +79,7 @@ const confirmationSchema = z.object({ items: z.array(confirmationItemSchema).min
 const intakeItemSchema = confirmationItemSchema
   .extend({
     currentInventoryQuantity: z.number().nullable().optional(),
+    matchQueryName: z.string().optional(),
     supplierCode: z.string().nullable().optional(),
     supplierLastPrice: z.number().nullable().optional(),
     supplierName: z.string().nullable().optional(),
@@ -313,8 +314,10 @@ export function installPurchasingRoutes(server: PurchasingMiddlewareServer, opti
         const candidates = await historicalCandidates();
         const inventoryEntries = await historicalInventoryEntries();
         const items = confirmation.data.items.map((item) => {
+          const normalisedName = normaliseProductName(item.product_name);
           const recommendation = recommendHistoricalProduct({
             candidates,
+            feedback: listMatchFeedback(options.database, normalisedName),
             inventoryEntries,
             productName: item.product_name
           });
@@ -441,7 +444,6 @@ function rankedCandidateSearch(
     normalisedProductName: normalisedQuery
   });
   const rankedIds = new Set(ranked.map((candidate) => candidate.id));
-  const queryTokens = new Set(normalisedQuery.split(" ").filter(Boolean));
   const compactQuery = rawQuery
     .toLocaleLowerCase("en-GB")
     .replace(/[^a-z0-9]/g, "")
@@ -451,8 +453,6 @@ function rankedCandidateSearch(
       if (rankedIds.has(candidate.id)) {
         return false;
       }
-      const candidateTokens = normaliseProductName(candidate.productName).split(" ");
-      const sharesToken = candidateTokens.some((token) => queryTokens.has(token));
       const compactCode = candidate.supplierProductCode
         .toLocaleLowerCase("en-GB")
         .replace(/[^a-z0-9]/g, "")
@@ -460,7 +460,6 @@ function rankedCandidateSearch(
       const supplierNameMatches = normaliseProductName(candidate.supplierName).includes(normalisedQuery);
       const compactSupplierCode = candidate.supplierCode.toLocaleLowerCase("en-GB").replace(/[^a-z0-9]/g, "");
       return (
-        sharesToken ||
         (normalisedQuery.length > 1 && supplierNameMatches) ||
         (compactQuery.length > 1 && (compactCode.includes(compactQuery) || compactSupplierCode.includes(compactQuery)))
       );

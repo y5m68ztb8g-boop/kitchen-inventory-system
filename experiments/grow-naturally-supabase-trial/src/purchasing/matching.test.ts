@@ -262,6 +262,16 @@ describe("rankHistoricalProducts", () => {
     expect(ranked).toEqual([]);
   });
 
+  it("does not treat orange cordial as a valid 50% overlap match for orange juice", () => {
+    const ranked = rankHistoricalProducts({
+      productName: "orange juice",
+      candidates: [candidate("Orange Cordial", "OJ-CORDIAL")],
+      inventoryEntries: []
+    });
+
+    expect(ranked).toEqual([]);
+  });
+
   it("returns the complete ranked contract with a numeric score", () => {
     const ranked = rankHistoricalProducts({
       productName: "orange juice",
@@ -432,6 +442,38 @@ describe("rankHistoricalProducts", () => {
     });
 
     expect(ranked).toEqual([]);
+  });
+
+  it("prefers Campbells on shellfish tie-breaks while excluding zero-overlap fallback candidates", () => {
+    const ranked = rankHistoricalProducts({
+      productName: "shellfish",
+      candidates: [
+        candidate("Shellfish Medley", "CMP-1", {
+          id: "cmp-shellfish",
+          supplierName: "Campbells Prime Meat Ltd",
+          supplierCode: "CMP",
+          purchaseCount: 9,
+          latestPurchaseDate: "2026-07-01"
+        }),
+        candidate("shellfish snacks", "BRK-1", {
+          id: "brk-shellfish",
+          supplierName: "Brakes / Sysco GB Ltd",
+          supplierCode: "BRK",
+          purchaseCount: 99,
+          latestPurchaseDate: "2026-07-01"
+        }),
+        candidate("Apple Juice Concentrate", "FILLER-1", {
+          id: "filler-apple",
+          supplierName: "Brakes / Sysco GB Ltd",
+          supplierCode: "BRK",
+          purchaseCount: 999,
+          latestPurchaseDate: "2026-07-10"
+        })
+      ],
+      inventoryEntries: []
+    });
+
+    expect(ranked.map((item) => item.id)).toEqual(["cmp-shellfish", "brk-shellfish"]);
   });
 
   it("defaults to Brakes when no preferred supplier category matches", () => {

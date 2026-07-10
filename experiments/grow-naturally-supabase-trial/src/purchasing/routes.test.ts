@@ -520,6 +520,18 @@ function parseHistoricalCandidates(payload: unknown) {
       : [];
 }
 
+function insertMatchFeedback(
+  database: Database.Database,
+  normalisedName: string,
+  supplierProductId: string,
+  confirmationCount: number,
+  lastConfirmedAt = "2026-07-10T12:00:00.000Z"
+) {
+  database.prepare(`INSERT INTO purchase_match_feedback (
+    normalised_name, supplier_product_id, confirmation_count, last_confirmed_at
+  ) VALUES (?, ?, ?, ?)`).run(normalisedName, supplierProductId, confirmationCount, lastConfirmedAt);
+}
+
 function realSmokeRouteOptions() {
   const database = createPurchasingDatabase(":memory:");
   const server = createTestServer({
@@ -829,7 +841,7 @@ describe("purchasing API routes", () => {
       recommendedSupplierName: "Brakes",
       recommendedSupplierProductId: "BRK-ORANGE"
     });
-    expect(candidates[1]).toMatchObject({ id: "BRK-JUICE" });
+    expect(candidates).toHaveLength(1);
   });
 
   it("supports supplier code search for historical-products with complete candidate and recommendation fields", async () => {
@@ -936,6 +948,43 @@ describe("purchasing API routes", () => {
       } finally {
       route.database.close();
     }
+  });
+
+  it("does not return apple juice concentrate for fresh orange juice from shared juice fallback", async () => {
+    const { baseUrl } = routeOptions({
+      historicalCandidates: () => [
+        {
+          id: "BRK-FRESH-ORANGE",
+          latestPrice: 9.99,
+          latestPurchaseDate: "2026-07-01",
+          packSize: "12x1L",
+          productName: "Fresh Orange Juice",
+          purchaseCount: 8,
+          supplierCode: "BRK",
+          supplierName: "Brakes",
+          supplierProductCode: "FOJ-1"
+        },
+        {
+          id: "CMP-APPLE-JUICE",
+          latestPrice: 4.5,
+          latestPurchaseDate: "2026-07-01",
+          packSize: "6x2L",
+          productName: "Apple Juice Concentrate",
+          purchaseCount: 500,
+          supplierCode: "CMP",
+          supplierName: "Campbells Prime Meat Ltd",
+          supplierProductCode: "AJC-1"
+        }
+      ]
+    });
+    const response = await fetch(
+      `${await baseUrl}/api/purchasing/historical-products?query=${encodeURIComponent("fresh orange juice")}`
+    );
+    const candidates = parseHistoricalCandidates(await response.json()) as Array<{ productName: string; id: string }>;
+
+    expect(response.status).toBe(200);
+    expect(candidates.map((candidate) => candidate.productName)).not.toContain("Apple Juice Concentrate");
+    expect(candidates.find((candidate) => candidate.id === "BRK-FRESH-ORANGE")).toBeDefined();
   });
 
   it.each(["FRIES-1", "FRIES1"] as const)(
@@ -1069,11 +1118,92 @@ describe("purchasing API routes", () => {
     const sameTierSearch = await fetch(`${await baseUrl}/api/purchasing/historical-products?query=${encodeURIComponent("cold brew")}`);
     expect(sameTierSearch.status).toBe(200);
     const sameTierCandidates = parseHistoricalCandidates(await sameTierSearch.json());
-    expect(sameTierCandidates[0]).toMatchObject({
-      id: "BRK-SAME-A",
-      isRecommended: true,
-      productName: "brew cold blend"
+      expect(sameTierCandidates[0]).toMatchObject({
+        id: "BRK-SAME-A",
+        isRecommended: true,
+        productName: "brew cold blend"
+      });
+  });
+
+  it("reads existing feedback in whiteboard legacy confirm while keeping semantic threshold controls", async () => {
+    const { baseUrl, database } = routeOptions({
+      historicalCandidates: () => [
+        {
+          id: "CMP-HIGH-CANDIDATE",
+          latestPrice: 22.1,
+          latestPurchaseDate: "2026-07-08",
+          packSize: "12x1L",
+          productName: "Haddock Fillet",
+          purchaseCount: 1,
+          supplierCode: "CMP",
+          supplierName: "Campbells Prime Meat Ltd",
+          supplierProductCode: "HDK-HIGH"
+        },
+        {
+          id: "CMP-LOW-CANDIDATE",
+          latestPrice: 20,
+          latestPurchaseDate: "2026-07-01",
+          packSize: "12x1L",
+          productName: "Haddock Steak",
+          purchaseCount: 35,
+          supplierCode: "CMP",
+          supplierName: "Campbells Prime Meat Ltd",
+          supplierProductCode: "HDK-LOW"
+        },
+        {
+          id: "BRK-DISALLOWED",
+          latestPrice: 15,
+          latestPurchaseDate: "2026-07-09",
+          packSize: "12x1L",
+          productName: "Apple Juice Concentrate",
+          purchaseCount: 120,
+          supplierCode: "BRK",
+          supplierName: "Brakes / Sysco GB Ltd",
+          supplierProductCode: "AJC-1"
+        }
+      ],
+      historicalInventoryEntries: () => []
     });
+    const upload = uploadBody();
+    await fetch(`${await baseUrl}/api/purchasing/scan-whiteboard`, {
+      body: upload.body,
+      headers: { "Content-Type": upload.contentType },
+      method: "POST"
+    });
+
+    insertMatchFeedback(database, "haddock", "CMP-HIGH-CANDIDATE", 9);
+    insertMatchFeedback(database, "haddock", "BRK-DISALLOWED", 99);
+
+    const confirmResponse = await fetch(`${await baseUrl}/api/purchasing/whiteboard-scans/scan-test-id/confirm`, {
+      body: JSON.stringify({
+        items: [
+        {
+            ...recognisedResponse.items[0],
+            manualReviewed: true,
+            clientId: "haddock-row",
+            product_name: "haddock",
+            raw_text: "haddock"
+        }
+        ]
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+
+    expect(confirmResponse.status).toBe(200);
+    const confirmPayload = (await confirmResponse.json()) as {
+      items: Array<{
+        clientId: string;
+        productName: string;
+        recommendation: {
+          recommendedSupplierProductId: string | null;
+          recommendedSupplierName: string | null;
+        } | null;
+      }>;
+    };
+
+    expect(confirmPayload.items[0]?.recommendation?.recommendedSupplierProductId).toBe("CMP-HIGH-CANDIDATE");
+    expect(confirmPayload.items[0]?.recommendation?.recommendedSupplierProductId).not.toBe("BRK-DISALLOWED");
   });
 
   it("keeps higher-tier historical matches above repeated lower-tier feedback", async () => {

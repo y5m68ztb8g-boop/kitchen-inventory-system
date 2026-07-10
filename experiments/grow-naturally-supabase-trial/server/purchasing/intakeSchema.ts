@@ -8,6 +8,7 @@ export type PurchaseIntakeItem = {
   currentInventoryQuantity?: number | null;
   department: string | null;
   manualReviewed: boolean;
+  matchQueryName?: string;
   notes: string | null;
   product_name: string;
   quantity: number | null;

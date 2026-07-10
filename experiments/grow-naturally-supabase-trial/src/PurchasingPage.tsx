@@ -40,6 +40,7 @@ function createReviewItem(
     clientId,
     currentInventoryQuantity: null,
     manualReviewed: item.confidence >= 0.8,
+    matchQueryName: item.product_name,
     supplierCode: null,
     supplierLastPrice: null,
     supplierLastPurchaseDate: null,
@@ -401,7 +402,7 @@ export function PurchasingPage() {
                   <article className={`purchase-review-row${lowConfidence ? " purchase-review-row-low-confidence" : ""}`} data-testid={`purchase-review-row-${number}`} key={item.clientId} role="row">
                     <div className="purchase-review-fields">
                       <label><span>部门</span><input aria-label={`部门 ${number}`} disabled={reviewLocked} onChange={(event) => updateItem(item.clientId, { department: nullableText(event.target.value) })} value={item.department ?? ""} /></label>
-                      <label className="purchase-product-field"><span>产品名称</span><input aria-label={`产品名称 ${number}`} disabled={reviewLocked} onChange={(event) => updateItem(item.clientId, { product_name: event.target.value })} value={item.product_name} /></label>
+                      <label className="purchase-product-field"><span>产品名称</span><input aria-label={`产品名称 ${number}`} disabled={reviewLocked} onChange={(event) => updateItem(item.clientId, { matchQueryName: event.target.value, product_name: event.target.value })} value={item.product_name} /></label>
                       <label><span>数量</span><input aria-label={`数量 ${number}`} disabled={reviewLocked} inputMode="decimal" min="0" onChange={(event) => updateItem(item.clientId, { quantity: event.target.value === "" ? null : Number(event.target.value) })} type="number" value={item.quantity ?? ""} /></label>
                       <label><span>单位</span><input aria-label={`单位 ${number}`} disabled={reviewLocked} onChange={(event) => updateItem(item.clientId, { unit: nullableText(event.target.value) })} value={item.unit ?? ""} /></label>
                       <label><span>备注</span><input aria-label={`备注 ${number}`} disabled={reviewLocked} onChange={(event) => updateItem(item.clientId, { notes: nullableText(event.target.value) })} value={item.notes ?? ""} /></label>
@@ -430,7 +431,7 @@ export function PurchasingPage() {
         )}
       </section>
 
-      {matchingItem && <ProductMatchDialog itemName={matchingItem.product_name} onChoose={chooseProduct} onClose={closeMatching} returnFocusElement={matchingTriggerRef.current} selectedProductId={matchingItem.supplierProductId} />}
+      {matchingItem && <ProductMatchDialog itemName={matchingItem.matchQueryName ?? matchingItem.product_name} onChoose={chooseProduct} onClose={closeMatching} returnFocusElement={matchingTriggerRef.current} selectedProductId={matchingItem.supplierProductId} />}
 
       {showSource && state.kind === "review" && (
         <div className="purchase-image-dialog-backdrop">
