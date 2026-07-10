@@ -5,7 +5,7 @@ test("home screen shows the four initial modules", async ({ page }) => {
 
   await expect(page.getByRole("button", { name: "搜索" })).toBeVisible();
   await expect(page.getByRole("button", { name: "区域" })).toBeVisible();
-  await expect(page.getByLabel("未来功能预留")).toBeVisible();
+  await expect(page.getByRole("link", { name: "采购" })).toHaveAttribute("href", "#purchasing");
   await expect(page.getByRole("link", { name: "产品库存总金额" })).toBeVisible();
 });
 

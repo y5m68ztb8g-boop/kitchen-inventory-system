@@ -66,6 +66,8 @@ test.describe("purchasing whiteboard flow", () => {
     await page.goto("/");
     await page.getByRole("link", { name: "采购" }).click();
     await expect(page).toHaveURL(/#purchasing$/);
+    await expect(page.getByRole("link", { name: "返回首页" })).toHaveAttribute("href", "#");
+    await expect(page.getByRole("button", { name: "选择现有图片" })).toBeVisible();
 
     await page.getByRole("button", { name: "Scan Purchase Whiteboard" }).click();
     await page.getByLabel("拍摄采购白板").setInputFiles({
@@ -84,6 +86,7 @@ test.describe("purchasing whiteboard flow", () => {
     await expect(page.getByTestId("purchase-review-row-1")).toBeVisible();
     await expect(page.getByTestId("purchase-review-row-1")).toHaveClass(/purchase-review-row-low-confidence/);
     await expect(page.getByRole("button", { name: "确认保存" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "查看原始图片" })).toHaveAttribute("title", "查看原始图片");
     await expectNoHorizontalOverflow(page);
 
     await page.getByLabel("产品名称 1").fill("Chicken Breast");

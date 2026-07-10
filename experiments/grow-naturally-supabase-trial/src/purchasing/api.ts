@@ -34,8 +34,10 @@ export type WhiteboardConfirmationResponse = {
 const chineseErrorMessages: Record<string, string> = {
   AI_SERVICE_UNAVAILABLE: "识别服务暂时不可用，请稍后重试。",
   IMAGE_TOO_LARGE: "图片不能超过 15 MB。",
+  INVALID_AI_RESPONSE: "识别结果格式无效，请重新识别。",
   INVALID_REVIEW_DATA: "请检查采购项目后再保存。",
   MISSING_API_KEY: "服务器尚未配置 AI 识别密钥。",
+  NO_READABLE_TEXT: "未识别到可用的采购文字。",
   NOT_FOUND: "未找到采购扫描记录。",
   UNSUPPORTED_IMAGE_FORMAT: "请上传 JPG、PNG、HEIC、HEIF 或 WebP 图片。"
 };
@@ -65,7 +67,12 @@ export async function confirmWhiteboardScan(
 }
 
 async function readPurchasingResponse<T>(url: string, options: RequestInit): Promise<T> {
-  const response = await fetch(url, options);
+  let response: Response;
+  try {
+    response = await fetch(url, options);
+  } catch {
+    throw new Error("网络连接失败，请检查网络后重试。");
+  }
   const payload = (await response.json().catch(() => null)) as { error?: { code?: string } } | T | null;
 
   if (!response.ok) {

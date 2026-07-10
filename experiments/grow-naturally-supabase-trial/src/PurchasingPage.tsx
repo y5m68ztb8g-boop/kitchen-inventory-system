@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Image as ImageIcon, Trash2 } from "lucide-react";
 
 import "./PurchasingPage.css";
 import { confirmWhiteboardScan, scanWhiteboard, type WhiteboardConfirmationResponse, type WhiteboardScanResponse } from "./purchasing/api";
@@ -10,6 +11,7 @@ type ReviewState = {
   generalNotes: string | null;
   imageUrl: string;
   items: WhiteboardReviewItem[];
+  saveError: string | null;
   scanId: string;
   unreadableText: string[];
 };
@@ -110,6 +112,7 @@ export function PurchasingPage() {
         imageUrl: response.imageUrl,
         items: response.items.map((item) => reviewItem(item, createClientId)),
         kind: "review",
+        saveError: null,
         scanId: response.scanId,
         unreadableText: response.unreadableText
       });
@@ -147,18 +150,25 @@ export function PurchasingPage() {
       return;
     }
 
-    const savingState: PurchasingState = { ...state, kind: "saving" };
+    const savingState: PurchasingState = { ...state, kind: "saving", saveError: null };
     setState(savingState);
     try {
       setState({ kind: "saved", result: await confirmWhiteboardScan(savingState.scanId, savingState.items) });
     } catch (error) {
-      setState({ kind: "error", message: error instanceof Error ? error.message : "保存失败，请稍后重试。" });
+      setState({
+        ...savingState,
+        kind: "review",
+        saveError: error instanceof Error ? error.message : "保存失败，请稍后重试。"
+      });
     }
   }
 
   return (
     <main className="purchasing-page-shell">
       <section className="purchasing-page-panel" aria-labelledby="purchasing-page-title">
+        <a className="purchasing-back-link" href="#">
+          返回首页
+        </a>
         <p className="purchasing-page-eyebrow">采购白板</p>
         <h1 id="purchasing-page-title">采购白板识别</h1>
 
@@ -183,9 +193,14 @@ export function PurchasingPage() {
         />
 
         {state.kind === "idle" && (
-          <button className="purchasing-primary-action" onClick={() => cameraInputRef.current?.click()} type="button">
-            Scan Purchase Whiteboard
-          </button>
+          <div className="purchasing-idle-actions">
+            <button className="purchasing-primary-action" onClick={() => cameraInputRef.current?.click()} type="button">
+              Scan Purchase Whiteboard
+            </button>
+            <button onClick={() => chooserInputRef.current?.click()} type="button">
+              选择现有图片
+            </button>
+          </div>
         )}
 
         {(state.kind === "preview" || state.kind === "recognising") && (
@@ -212,11 +227,22 @@ export function PurchasingPage() {
                 <h2 id="purchase-review-title">核对采购项目</h2>
                 {review.generalNotes && <p>{review.generalNotes}</p>}
               </div>
-              <button onClick={() => setShowOriginalImage(true)} type="button">
-                查看原始图片
+              <button
+                aria-label="查看原始图片"
+                className="purchasing-icon-button"
+                onClick={() => setShowOriginalImage(true)}
+                title="查看原始图片"
+                type="button"
+              >
+                <ImageIcon aria-hidden="true" size={20} />
               </button>
             </div>
             {review.unreadableText.length > 0 && <p className="purchase-review-note">未识别文字：{review.unreadableText.join("、")}</p>}
+            {review.saveError && (
+              <div className="purchase-error" role="alert">
+                <p>{review.saveError}</p>
+              </div>
+            )}
             <div className="purchase-review-table" role="table" aria-label="采购项目核对表">
               {review.items.map((item, index) => {
                 const number = index + 1;
@@ -252,8 +278,15 @@ export function PurchasingPage() {
                       <input aria-label={`已人工核对 ${number}`} checked={item.manualReviewed} disabled={state.kind === "saving"} onChange={(event) => updateReviewItem(item.clientId, { manualReviewed: event.target.checked })} type="checkbox" />
                       <span>{lowConfidence ? "已人工核对（必填）" : "已人工核对"}</span>
                     </label>
-                    <button aria-label={`删除第 ${number} 行`} disabled={state.kind === "saving"} onClick={() => deleteReviewItem(item.clientId)} type="button">
-                      删除
+                    <button
+                      aria-label={`删除第 ${number} 行`}
+                      className="purchasing-icon-button"
+                      disabled={state.kind === "saving"}
+                      onClick={() => deleteReviewItem(item.clientId)}
+                      title={`删除第 ${number} 行`}
+                      type="button"
+                    >
+                      <Trash2 aria-hidden="true" size={20} />
                     </button>
                   </div>
                 );
@@ -264,7 +297,7 @@ export function PurchasingPage() {
                 新增一行
               </button>
               <button className="purchasing-primary-action" disabled={state.kind === "saving" || requiresManualReview} onClick={() => void confirm()} type="button">
-                {state.kind === "saving" ? "保存中" : "确认保存"}
+                {state.kind === "saving" ? "保存中" : review.saveError ? "重试保存" : "确认保存"}
               </button>
             </div>
           </section>

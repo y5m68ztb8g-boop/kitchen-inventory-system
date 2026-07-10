@@ -6,7 +6,7 @@ import Database from "better-sqlite3";
 import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPurchasingDatabase, getScanImage } from "../../server/purchasing/database";
-import { prepareWhiteboardImage } from "../../server/purchasing/imagePreparation";
+import { MAX_UPLOAD_BYTES, prepareWhiteboardImage } from "../../server/purchasing/imagePreparation";
 import { readMultipartImage } from "../../server/purchasing/multipart";
 import {
   WHITEBOARD_SYSTEM_INSTRUCTION,
@@ -157,10 +157,21 @@ describe("readMultipartImage", () => {
     ).rejects.toMatchObject({ code: "UNSUPPORTED_IMAGE_FORMAT" });
   });
 
+  it("accepts an image of exactly 15 MB", async () => {
+    const image = Buffer.alloc(MAX_UPLOAD_BYTES);
+
+    const result = await readMultipartImage(
+      multipartRequest([{ name: "image", filename: "boundary.jpg", value: image }])
+    );
+
+    expect(result.buffer.length).toBe(MAX_UPLOAD_BYTES);
+    expect(result.buffer.equals(image)).toBe(true);
+  });
+
   it("rejects a Busboy-truncated upload", async () => {
     await expect(
       readMultipartImage(
-        multipartRequest([{ name: "image", filename: "large.jpg", value: Buffer.alloc(15 * 1024 * 1024 + 1) }])
+        multipartRequest([{ name: "image", filename: "large.jpg", value: Buffer.alloc(MAX_UPLOAD_BYTES + 1) }])
       )
     ).rejects.toMatchObject({ code: "IMAGE_TOO_LARGE" });
   });

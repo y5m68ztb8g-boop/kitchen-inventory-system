@@ -21,7 +21,9 @@ describe("PurchasingPage capture", () => {
     const user = userEvent.setup();
     render(<PurchasingPage />);
 
+    expect(screen.getByRole("link", { name: "返回首页" })).toHaveAttribute("href", "#");
     expect(screen.getByRole("button", { name: "Scan Purchase Whiteboard" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "选择现有图片" })).toBeInTheDocument();
 
     const cameraInput = screen.getByLabelText("拍摄采购白板");
     expect(cameraInput).toHaveAttribute("accept", "image/jpeg,image/png,image/heic,image/heif,image/webp,.heic,.heif");
@@ -113,11 +115,17 @@ describe("PurchasingPage review", () => {
     await user.type(screen.getByLabelText("单位 1"), "包");
     await user.clear(screen.getByLabelText("备注 1"));
     await user.type(screen.getByLabelText("备注 1"), "去皮");
-    await user.click(screen.getByRole("button", { name: "删除第 2 行" }));
+    const deleteButton = screen.getByRole("button", { name: "删除第 2 行" });
+    expect(deleteButton).toHaveAttribute("title", "删除第 2 行");
+    expect(deleteButton.querySelector("svg.lucide")).toBeInTheDocument();
+    await user.click(deleteButton);
     await user.click(screen.getByRole("button", { name: "新增一行" }));
     expect(screen.getByLabelText("已人工核对 2")).toBeChecked();
 
-    await user.click(screen.getByRole("button", { name: "查看原始图片" }));
+    const originalImageButton = screen.getByRole("button", { name: "查看原始图片" });
+    expect(originalImageButton).toHaveAttribute("title", "查看原始图片");
+    expect(originalImageButton.querySelector("svg.lucide")).toBeInTheDocument();
+    await user.click(originalImageButton);
     expect(screen.getByRole("dialog", { name: "原始采购白板" })).toContainElement(
       screen.getByRole("img", { name: "原始采购白板" })
     );
@@ -141,6 +149,53 @@ describe("PurchasingPage review", () => {
       ])
     );
   });
+
+  it("preserves edited review rows and offers a save retry after confirmation fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(scanWhiteboard).mockResolvedValue({
+      generalNotes: null,
+      imageUrl: "/api/purchasing/whiteboard-scans/scan-retry/image",
+      items: [
+        {
+          confidence: 0.95,
+          department: "厨房",
+          notes: null,
+          product_name: "鸡胸肉",
+          quantity: 2,
+          raw_text: "鸡胸肉",
+          unit: "箱"
+        }
+      ],
+      scanId: "scan-retry",
+      unreadableText: []
+    });
+    vi.mocked(confirmWhiteboardScan)
+      .mockRejectedValueOnce(new Error("网络连接失败，请检查网络后重试。"))
+      .mockResolvedValueOnce({ items: [], scanId: "scan-retry", status: "Pending" });
+    render(<PurchasingPage />);
+
+    await user.upload(
+      screen.getByLabelText("拍摄采购白板"),
+      new File(["whiteboard"], "whiteboard.jpg", { type: "image/jpeg" })
+    );
+    await user.click(screen.getByRole("button", { name: "开始识别" }));
+    await user.clear(screen.getByLabelText("产品名称 1"));
+    await user.type(screen.getByLabelText("产品名称 1"), "修订鸡胸肉");
+    await user.click(screen.getByRole("button", { name: "确认保存" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("网络连接失败，请检查网络后重试。");
+    expect(screen.getByLabelText("产品名称 1")).toHaveValue("修订鸡胸肉");
+    expect(screen.getByLabelText("产品名称 1")).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "重试保存" }));
+
+    expect(confirmWhiteboardScan).toHaveBeenCalledTimes(2);
+    expect(confirmWhiteboardScan).toHaveBeenLastCalledWith(
+      "scan-retry",
+      expect.arrayContaining([expect.objectContaining({ product_name: "修订鸡胸肉" })])
+    );
+    expect(await screen.findByRole("heading", { name: "采购项目已保存" })).toBeInTheDocument();
+  });
 });
 
 describe("purchasing API", () => {
@@ -161,6 +216,35 @@ describe("purchasing API", () => {
       expect.objectContaining({ body: expect.any(FormData), method: "POST" })
     );
     expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toBeUndefined();
+  });
+
+  it.each([
+    ["NO_READABLE_TEXT", "未识别到可用的采购文字。"],
+    ["INVALID_AI_RESPONSE", "识别结果格式无效，请重新识别。"]
+  ])("maps %s to a stable Chinese error", async (code, message) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: { code, message: "unsafe server detail" } }), {
+          headers: { "Content-Type": "application/json" },
+          status: 422
+        })
+      )
+    );
+    const api = await vi.importActual<typeof import("./purchasing/api")>("./purchasing/api");
+
+    await expect(
+      api.scanWhiteboard(new File(["whiteboard"], "whiteboard.png", { type: "image/png" }))
+    ).rejects.toThrow(message);
+  });
+
+  it("normalizes browser-native fetch failures to a stable Chinese message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    const api = await vi.importActual<typeof import("./purchasing/api")>("./purchasing/api");
+
+    await expect(
+      api.scanWhiteboard(new File(["whiteboard"], "whiteboard.png", { type: "image/png" }))
+    ).rejects.toThrow("网络连接失败，请检查网络后重试。");
   });
 });
 

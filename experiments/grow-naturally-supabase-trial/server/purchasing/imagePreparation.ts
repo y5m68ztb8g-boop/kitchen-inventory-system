@@ -1,4 +1,5 @@
 import sharp, { type Metadata } from "sharp";
+import convertHeic from "heic-convert";
 import { PurchasingApiError } from "./errors";
 
 export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
@@ -66,6 +67,12 @@ export async function prepareWhiteboardImage(input: WhiteboardImageInput): Promi
     requiresAutoRotation;
 
   if (!shouldConvert) {
+    try {
+      await sharp(input.buffer, { failOn: "error", pages: 1 }).raw().toBuffer();
+    } catch {
+      throw new PurchasingApiError("UNSUPPORTED_IMAGE_FORMAT");
+    }
+
     return {
       buffer: input.buffer,
       storedMimeType: decodedMimeType,
@@ -77,16 +84,21 @@ export async function prepareWhiteboardImage(input: WhiteboardImageInput): Promi
   }
 
   try {
-    const output = await sharp(input.buffer, { failOn: "error", pages: 1 })
-      .rotate()
-      .resize({
-        width: MAX_LONG_EDGE,
-        height: MAX_LONG_EDGE,
-        fit: "inside",
-        withoutEnlargement: true
-      })
-      .webp({ quality: 82 })
-      .toBuffer({ resolveWithObject: true });
+    let sourceBuffer = input.buffer;
+    let output;
+
+    try {
+      output = await convertToWebp(sourceBuffer);
+    } catch (error) {
+      if (decodedMimeType !== "image/heic") {
+        throw error;
+      }
+
+      sourceBuffer = Buffer.from(
+        await convertHeic({ buffer: input.buffer, format: "JPEG", quality: 0.92 })
+      );
+      output = await convertToWebp(sourceBuffer);
+    }
 
     return {
       buffer: output.data,
@@ -99,4 +111,17 @@ export async function prepareWhiteboardImage(input: WhiteboardImageInput): Promi
   } catch {
     throw new PurchasingApiError("UNSUPPORTED_IMAGE_FORMAT");
   }
+}
+
+function convertToWebp(buffer: Buffer) {
+  return sharp(buffer, { failOn: "error", pages: 1 })
+    .rotate()
+    .resize({
+      width: MAX_LONG_EDGE,
+      height: MAX_LONG_EDGE,
+      fit: "inside",
+      withoutEnlargement: true
+    })
+    .webp({ quality: 82 })
+    .toBuffer({ resolveWithObject: true });
 }

@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import { randomBytes } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import {
@@ -134,14 +135,10 @@ describe("prepareWhiteboardImage", () => {
     expect(mapSharpFormatToMimeType("heif")).toBe("image/heic");
   });
 
-  it("decodes a real HEIF image and converts it to WebP", async () => {
-    const buffer = await sharp({
-      create: { width: 32, height: 32, channels: 3, background: "white" }
-    })
-      .heif({ compression: "av1" })
-      .toBuffer();
+  it("decodes a real HEVC HEIC image and converts it to WebP", async () => {
+    const buffer = await readFile(new URL("./fixtures/rainbow-hevc.heic", import.meta.url));
 
-    expect((await sharp(buffer).metadata()).format).toBe("heif");
+    expect(await sharp(buffer).metadata()).toMatchObject({ compression: "hevc", format: "heif" });
 
     const result = await prepareWhiteboardImage({
       buffer,
@@ -158,6 +155,24 @@ describe("prepareWhiteboardImage", () => {
       prepareWhiteboardImage({
         buffer: Buffer.from("not an image"),
         filename: "board.jpg",
+        browserMimeType: "image/jpeg"
+      })
+    ).rejects.toMatchObject({ code: "UNSUPPORTED_IMAGE_FORMAT" });
+  });
+
+  it("fully decodes and rejects a corrupt small image with valid metadata", async () => {
+    const validJpeg = await makeTestImage("jpeg");
+    const corruptJpeg = validJpeg.subarray(0, validJpeg.length - 10);
+
+    await expect(sharp(corruptJpeg, { failOn: "error" }).metadata()).resolves.toMatchObject({
+      format: "jpeg",
+      height: 32,
+      width: 32
+    });
+    await expect(
+      prepareWhiteboardImage({
+        buffer: corruptJpeg,
+        filename: "corrupt-small.jpg",
         browserMimeType: "image/jpeg"
       })
     ).rejects.toMatchObject({ code: "UNSUPPORTED_IMAGE_FORMAT" });

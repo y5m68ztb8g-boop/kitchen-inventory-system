@@ -1,4 +1,6 @@
 import Database from "better-sqlite3";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import type { WhiteboardReviewItem } from "../../src/purchasing/types";
 import { PurchasingApiError } from "./errors";
 
@@ -84,6 +86,9 @@ const schema = `
 `;
 
 export function createPurchasingDatabase(path: string | Database.Database): Database.Database {
+  if (typeof path === "string") {
+    mkdirSync(dirname(path), { recursive: true });
+  }
   const database = typeof path === "string" ? new Database(path) : path;
   database.pragma("foreign_keys = ON");
   database.exec(schema);

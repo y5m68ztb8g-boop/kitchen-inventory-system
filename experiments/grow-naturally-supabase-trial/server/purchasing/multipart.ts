@@ -15,7 +15,7 @@ export function readMultipartImage(request: IncomingMessage): Promise<MultipartI
     try {
       busboy = Busboy({
         headers: request.headers,
-        limits: { fields: 0, fileSize: MAX_UPLOAD_BYTES, files: 1 }
+        limits: { fields: 0, fileSize: MAX_UPLOAD_BYTES + 1, files: 1 }
       });
     } catch {
       reject(new PurchasingApiError("UNSUPPORTED_IMAGE_FORMAT"));
@@ -39,12 +39,13 @@ export function readMultipartImage(request: IncomingMessage): Promise<MultipartI
         uploadTooLarge = true;
       });
       file.on("end", () => {
-        if (file.truncated) {
+        const buffer = Buffer.concat(chunks);
+        if (file.truncated || buffer.length > MAX_UPLOAD_BYTES) {
           uploadTooLarge = true;
           return;
         }
         image = {
-          buffer: Buffer.concat(chunks),
+          buffer,
           browserMimeType: info.mimeType,
           filename: info.filename
         };

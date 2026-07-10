@@ -1,6 +1,9 @@
 // @vitest-environment node
 
 import Database from "better-sqlite3";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   confirmWhiteboardScan,
@@ -10,10 +13,14 @@ import {
 } from "../../server/purchasing/database";
 
 const openDatabases: Database.Database[] = [];
+const temporaryDirectories: string[] = [];
 
 afterEach(() => {
   for (const database of openDatabases.splice(0)) {
     database.close();
+  }
+  for (const directory of temporaryDirectories.splice(0)) {
+    rmSync(directory, { force: true, recursive: true });
   }
 });
 
@@ -40,6 +47,20 @@ function saveDraft(database: Database.Database, id = "scan-1") {
 }
 
 describe("createPurchasingDatabase", () => {
+  it("creates missing parent directories for a nested database path", () => {
+    const temporaryDirectory = mkdtempSync(join(tmpdir(), "purchasing-database-"));
+    const databasePath = join(temporaryDirectory, "initially", "absent", "purchasing.sqlite");
+    temporaryDirectories.push(temporaryDirectory);
+
+    const database = createPurchasingDatabase(databasePath);
+    openDatabases.push(database);
+
+    expect(existsSync(databasePath)).toBe(true);
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE name = 'whiteboard_scans'").get()).toEqual({
+      name: "whiteboard_scans"
+    });
+  });
+
   it("creates the purchasing schema idempotently and enables foreign keys", () => {
     const database = createDatabase();
 
@@ -50,6 +71,65 @@ describe("createPurchasingDatabase", () => {
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'whiteboard_%' ORDER BY name")
         .all()
     ).toEqual([{ name: "whiteboard_scan_items" }, { name: "whiteboard_scans" }]);
+  });
+
+  it("rejects invalid scan statuses at the SQL boundary", () => {
+    const database = createDatabase();
+    saveDraft(database);
+
+    expect(() =>
+      database.prepare("UPDATE whiteboard_scans SET status = 'Ordered' WHERE id = ?").run("scan-1")
+    ).toThrowError(/CHECK constraint failed/);
+    expect(database.prepare("SELECT status FROM whiteboard_scans WHERE id = ?").get("scan-1")).toEqual({
+      status: "Draft"
+    });
+  });
+
+  it.each([
+    { confidence: -0.01, manualReviewed: 0, name: "confidence below zero" },
+    { confidence: 1.01, manualReviewed: 0, name: "confidence above one" },
+    { confidence: 0.9, manualReviewed: 2, name: "manual_reviewed outside zero or one" }
+  ])("enforces item constraints for $name", ({ confidence, manualReviewed }) => {
+    const database = createDatabase();
+    saveDraft(database);
+
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO whiteboard_scan_items (
+             id, scan_id, row_order, raw_text, product_name, confidence,
+             manual_reviewed, status, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending', ?)`
+        )
+        .run("invalid-row", "scan-1", 0, "invalid", "Invalid", confidence, manualReviewed, "2026-07-10")
+    ).toThrowError(/CHECK constraint failed/);
+    expect(database.prepare("SELECT COUNT(*) AS count FROM whiteboard_scan_items").get()).toEqual({ count: 0 });
+  });
+
+  it("cascades item deletion when a scan is deleted", () => {
+    const database = createDatabase();
+    saveDraft(database);
+    confirmWhiteboardScan(database, {
+      items: [
+        {
+          clientId: "cascade-row",
+          confidence: 0.95,
+          department: null,
+          manualReviewed: false,
+          notes: null,
+          product_name: "Bread",
+          quantity: 1,
+          raw_text: "bread",
+          unit: null
+        }
+      ],
+      scanId: "scan-1"
+    });
+
+    database.prepare("DELETE FROM whiteboard_scans WHERE id = ?").run("scan-1");
+
+    expect(database.prepare("SELECT COUNT(*) AS count FROM whiteboard_scans").get()).toEqual({ count: 0 });
+    expect(database.prepare("SELECT COUNT(*) AS count FROM whiteboard_scan_items").get()).toEqual({ count: 0 });
   });
 });
 
@@ -162,6 +242,102 @@ describe("confirmWhiteboardScan", () => {
     ]);
   });
 
+  it("replaces prior rows when a confirmed scan is confirmed again", () => {
+    const database = createDatabase();
+    saveDraft(database);
+    confirmWhiteboardScan(database, {
+      confirmedAt: "2026-07-10T10:00:00.000Z",
+      items: [
+        {
+          clientId: "old-row-1",
+          confidence: 0.95,
+          department: null,
+          manualReviewed: false,
+          notes: null,
+          product_name: "Old bread",
+          quantity: 1,
+          raw_text: "old bread",
+          unit: null
+        },
+        {
+          clientId: "old-row-2",
+          confidence: 0.95,
+          department: null,
+          manualReviewed: false,
+          notes: null,
+          product_name: "Old milk",
+          quantity: 1,
+          raw_text: "old milk",
+          unit: null
+        }
+      ],
+      scanId: "scan-1"
+    });
+
+    confirmWhiteboardScan(database, {
+      confirmedAt: "2026-07-10T11:00:00.000Z",
+      items: [
+        {
+          clientId: "new-row-1",
+          confidence: 0.9,
+          department: "Bar",
+          manualReviewed: false,
+          notes: null,
+          product_name: "Orange juice",
+          quantity: 3,
+          raw_text: "orange juice 3",
+          recommendedProductCode: "JUICE-NEW",
+          recommendedSupplierProductId: "BRK-JUICE-NEW",
+          unit: "case"
+        },
+        {
+          clientId: "new-row-2",
+          confidence: 0.82,
+          department: "Kitchen",
+          manualReviewed: false,
+          notes: null,
+          product_name: "Garden peas",
+          quantity: 4,
+          raw_text: "garden peas 4",
+          recommendedProductCode: "PEAS-NEW",
+          recommendedSupplierProductId: "BRK-PEAS-NEW",
+          unit: "bag"
+        }
+      ],
+      scanId: "scan-1"
+    });
+
+    expect(
+      database
+        .prepare(
+          `SELECT id, row_order, status, recommended_supplier_product_id, recommended_product_code
+             FROM whiteboard_scan_items
+            WHERE scan_id = ?
+            ORDER BY row_order`
+        )
+        .all("scan-1")
+    ).toEqual([
+      {
+        id: "new-row-1",
+        recommended_product_code: "JUICE-NEW",
+        recommended_supplier_product_id: "BRK-JUICE-NEW",
+        row_order: 0,
+        status: "Pending"
+      },
+      {
+        id: "new-row-2",
+        recommended_product_code: "PEAS-NEW",
+        recommended_supplier_product_id: "BRK-PEAS-NEW",
+        row_order: 1,
+        status: "Pending"
+      }
+    ]);
+    expect(database.prepare("SELECT status, confirmed_at FROM whiteboard_scans WHERE id = ?").get("scan-1")).toEqual({
+      confirmed_at: "2026-07-10T11:00:00.000Z",
+      status: "Pending"
+    });
+  });
+
   it.each([
     { confidence: 0.79, manualReviewed: false, product_name: "Milk", quantity: 1 },
     { confidence: 1.1, manualReviewed: true, product_name: "Milk", quantity: 1 },
@@ -204,5 +380,93 @@ describe("confirmWhiteboardScan", () => {
       confirmed_at: null,
       status: "Draft"
     });
+  });
+
+  it("rolls back deletion and replacement rows when the second insert aborts", () => {
+    const database = createDatabase();
+    saveDraft(database);
+    confirmWhiteboardScan(database, {
+      confirmedAt: "2026-07-10T10:00:00.000Z",
+      items: [
+        {
+          clientId: "original-row",
+          confidence: 0.95,
+          department: "Kitchen",
+          manualReviewed: false,
+          notes: null,
+          product_name: "Original bread",
+          quantity: 2,
+          raw_text: "original bread 2",
+          recommendedProductCode: "ORIGINAL-1",
+          unit: "case"
+        }
+      ],
+      scanId: "scan-1"
+    });
+    const originalItems = database
+      .prepare(
+        `SELECT id, row_order, product_name, status, recommended_product_code
+           FROM whiteboard_scan_items
+          WHERE scan_id = ?
+          ORDER BY row_order`
+      )
+      .all("scan-1");
+    const originalScan = database
+      .prepare("SELECT status, confirmed_at FROM whiteboard_scans WHERE id = ?")
+      .get("scan-1");
+
+    database.exec(`
+      CREATE TEMP TRIGGER abort_second_replacement_insert
+      BEFORE INSERT ON whiteboard_scan_items
+      WHEN (SELECT COUNT(*) FROM whiteboard_scan_items WHERE scan_id = NEW.scan_id) = 1
+      BEGIN
+        SELECT RAISE(ABORT, 'forced second insert failure');
+      END;
+    `);
+
+    expect(() =>
+      confirmWhiteboardScan(database, {
+        confirmedAt: "2026-07-10T11:00:00.000Z",
+        items: [
+          {
+            clientId: "replacement-row-1",
+            confidence: 0.95,
+            department: null,
+            manualReviewed: false,
+            notes: null,
+            product_name: "Replacement milk",
+            quantity: 1,
+            raw_text: "replacement milk",
+            unit: null
+          },
+          {
+            clientId: "replacement-row-2",
+            confidence: 0.95,
+            department: null,
+            manualReviewed: false,
+            notes: null,
+            product_name: "Replacement eggs",
+            quantity: 2,
+            raw_text: "replacement eggs",
+            unit: null
+          }
+        ],
+        scanId: "scan-1"
+      })
+    ).toThrowError("forced second insert failure");
+
+    expect(
+      database
+        .prepare(
+          `SELECT id, row_order, product_name, status, recommended_product_code
+             FROM whiteboard_scan_items
+            WHERE scan_id = ?
+            ORDER BY row_order`
+        )
+        .all("scan-1")
+    ).toEqual(originalItems);
+    expect(database.prepare("SELECT status, confirmed_at FROM whiteboard_scans WHERE id = ?").get("scan-1")).toEqual(
+      originalScan
+    );
   });
 });
