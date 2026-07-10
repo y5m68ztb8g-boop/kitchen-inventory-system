@@ -32,6 +32,8 @@ test("mobile search is full screen, reusable and explicitly closable", async ({ 
   await expect(page.getByRole("button", { name: "搜索" })).toBeVisible();
 
   await page.getByRole("button", { name: "搜索" }).click();
+  await expect(page.getByPlaceholder("搜索发票商品 / code")).toHaveValue("");
+  await expect(product).toHaveValue("");
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "关闭搜索" })).toBeHidden();
 
@@ -77,6 +79,17 @@ test("mobile search is full screen, reusable and explicitly closable", async ({ 
   await page.getByPlaceholder("搜索发票商品 / code").fill("F135-177");
   await expect(page.getByRole("button", { name: "复制 135177" })).toBeVisible();
 
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => ({
+          bodyFitsViewport: document.body.scrollWidth <= document.documentElement.clientWidth,
+          documentFitsViewport: document.documentElement.scrollWidth <= window.innerWidth
+        })),
+      { message: "Invoice results should not overflow the mobile viewport.", timeout: 3000 }
+    )
+    .toEqual({ bodyFitsViewport: true, documentFitsViewport: true });
+
   const invoiceLayout = await page.evaluate(() => {
     const codeRow = document.querySelector<HTMLElement>(".invoice-code-row");
     const code = document.querySelector<HTMLElement>(".invoice-code-row strong");
@@ -89,15 +102,29 @@ test("mobile search is full screen, reusable and explicitly closable", async ({ 
     const codeStyle = window.getComputedStyle(code);
     const codeRect = code.getBoundingClientRect();
     const lineHeight = Number.parseFloat(codeStyle.lineHeight);
+    const buttons = Array.from(codeRow.querySelectorAll<HTMLButtonElement>(":scope > button"));
+    const buttonRects = buttons.map((button) => button.getBoundingClientRect());
 
     return {
+      buttonsFitViewport: buttonRects.every((rect) => rect.left >= 0 && rect.right <= window.innerWidth),
+      buttonsOnSecondRow:
+        buttonRects.length === 2 && buttonRects.every((rect) => rect.top > codeRect.bottom),
+      buttonsShareRow:
+        buttonRects.length === 2 && Math.abs(buttonRects[0].top - buttonRects[1].top) <= 1,
       codeIsHorizontal: codeRect.height <= lineHeight * 2 + 1,
       columns: rowStyle.gridTemplateColumns.split(" ").length,
       rows: rowStyle.gridTemplateRows.split(" ").length
     };
   });
 
-  expect(invoiceLayout).toEqual({ codeIsHorizontal: true, columns: 2, rows: 2 });
+  expect(invoiceLayout).toEqual({
+    buttonsFitViewport: true,
+    buttonsOnSecondRow: true,
+    buttonsShareRow: true,
+    codeIsHorizontal: true,
+    columns: 2,
+    rows: 2
+  });
 });
 
 test("desktop search leaves the home modules available and only dismisses results", async ({ page }, testInfo) => {
