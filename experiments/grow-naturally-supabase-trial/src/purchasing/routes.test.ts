@@ -12,8 +12,10 @@ import { buildCurrentInventoryEntries } from "../../server/purchasing/currentInv
 import { MAX_UPLOAD_BYTES, prepareWhiteboardImage } from "../../server/purchasing/imagePreparation";
 import { readMultipartImage } from "../../server/purchasing/multipart";
 import {
+  PURCHASE_DOCUMENT_INSTRUCTION,
   WHITEBOARD_SYSTEM_INSTRUCTION,
   recogniseWhiteboard,
+  recognisePurchasePdf,
   type OpenAIResponsesClient
 } from "../../server/purchasing/openaiWhiteboard";
 import { installPurchasingRoutes, type PurchasingRouteOptions } from "../../server/purchasing/routes";
@@ -167,6 +169,74 @@ describe("recogniseWhiteboard", () => {
   });
 });
 
+describe("recognisePurchasePdf", () => {
+  it("calls Responses API with input_file, input_text, and structured text format", async () => {
+    const client = createResponsesClient(recognisedResponse);
+    const source = {
+      buffer: Buffer.from("pdf-bytes"),
+      filename: "trial-invoice.pdf",
+      mimeType: "application/pdf"
+    };
+
+    await expect(recognisePurchasePdf(source, { apiKey: testKey, client, model: "gpt-test" })).resolves.toEqual(
+      recognisedResponse
+    );
+
+    expect(client.responses.parse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "gpt-test",
+        text: { format: expect.any(Object) },
+        input: [
+          {
+            role: "user",
+            content: expect.arrayContaining([
+              {
+                type: "input_file",
+                filename: "trial-invoice.pdf",
+                file_data: `data:application/pdf;base64,${source.buffer.toString("base64")}`
+              },
+              { type: "input_text", text: PURCHASE_DOCUMENT_INSTRUCTION }
+            ])
+          }
+        ]
+      })
+    );
+  });
+
+  it("does not leak API key or invoke network when upstream parse rejects", async () => {
+    const fetch = vi.fn(() => {
+      throw new Error("unexpected network access");
+    });
+    vi.stubGlobal("fetch", fetch);
+    const client = {
+      responses: {
+        parse: vi.fn().mockRejectedValue(new Error(`upstream rejected ${testKey}`))
+      }
+    };
+
+    try {
+      await expect(recognisePurchasePdf({ buffer: Buffer.from("pdf"), filename: "event.pdf", mimeType: "application/pdf" }, {
+        apiKey: testKey,
+        client
+      })).rejects.toSatisfy((error: unknown) => {
+        return (
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          error.code === "AI_SERVICE_UNAVAILABLE" &&
+          error instanceof Error &&
+          !error.message.includes(testKey)
+        );
+      });
+
+      expect(fetch).not.toHaveBeenCalled();
+      expect(client.responses.parse).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 function multipartRequest(parts: Array<{ filename?: string; name: string; value: Buffer | string }>) {
   const boundary = "task-three-boundary";
   const body = Buffer.concat(
@@ -281,7 +351,7 @@ afterEach(async () => {
   );
 });
 
-function routeOptions(overrides: Partial<PurchasingRouteOptions> = {}) {
+function makeRouteOptions(overrides: Partial<PurchasingRouteOptions> = {}) {
   const database = createPurchasingDatabase(":memory:");
   const options: PurchasingRouteOptions = {
     database,
@@ -315,9 +385,89 @@ function routeOptions(overrides: Partial<PurchasingRouteOptions> = {}) {
     scanId: () => "scan-test-id"
   };
   Object.assign(options, overrides);
+  return { database, options };
+}
+
+function routeOptions(overrides: Partial<PurchasingRouteOptions> = {}) {
+  const { database, options } = makeRouteOptions(overrides);
   const server = createTestServer(options);
   resources.push({ database, server });
   return { baseUrl: startServer(server), database, options };
+}
+
+function invokePurchasingRoute(route: {
+  method: string;
+  url: string;
+  options: Partial<PurchasingRouteOptions>;
+}) {
+  const { database, options } = makeRouteOptions(route.options);
+  let handler: RouteHandler | undefined;
+  installPurchasingRoutes(
+    {
+      middlewares: {
+        use(next) {
+          handler = next as RouteHandler;
+        }
+      }
+    },
+    options
+  );
+
+  if (!handler) {
+    throw new Error("Failed to install purchasing handler for route test.");
+  }
+  const installedHandler = handler;
+
+  const response = {
+    statusCode: 0,
+    headers: {} as Record<string, string>,
+    chunks: [] as Buffer[],
+    setHeader(name: string, value: string | number) {
+      this.headers[name.toLowerCase()] = String(value);
+    },
+    end(chunk?: string | Buffer | ArrayBufferView) {
+      if (chunk) {
+        this.chunks.push(
+          Buffer.isBuffer(chunk)
+            ? chunk
+            : typeof chunk === "string"
+              ? Buffer.from(chunk)
+              : Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)
+        );
+      }
+    }
+  } as {
+    statusCode: number;
+    headers: Record<string, string>;
+    chunks: Array<Buffer>;
+    setHeader: (name: string, value: string | number) => void;
+    end: (chunk?: string | Buffer | ArrayBufferView) => void;
+  };
+
+  const request = {
+    method: route.method,
+    url: route.url
+  } as IncomingMessage;
+
+  return {
+    handler: installedHandler,
+    request,
+    response,
+    database,
+    options,
+    readJson: async () => {
+      await installedHandler(request, response as unknown as ServerResponse, () => {
+        response.statusCode = 204;
+      });
+      return JSON.parse(Buffer.concat(response.chunks).toString("utf8"));
+    },
+    readStatus: async () => {
+      await installedHandler(request, response as unknown as ServerResponse, () => {
+        response.statusCode = 204;
+      });
+      return response;
+    }
+  };
 }
 
 function uploadBody(
@@ -680,6 +830,112 @@ describe("purchasing API routes", () => {
       recommendedSupplierProductId: "BRK-ORANGE"
     });
     expect(candidates[1]).toMatchObject({ id: "BRK-JUICE" });
+  });
+
+  it("supports supplier code search for historical-products with complete candidate and recommendation fields", async () => {
+    const route = invokePurchasingRoute({
+      method: "GET",
+      url: "/api/purchasing/historical-products?query=BRK",
+      options: {
+        historicalCandidates: () => [
+          {
+            id: "BRK-CHICKEN",
+            latestPrice: 24.5,
+            latestPurchaseDate: "2026-07-01",
+            packSize: "2x5kg",
+            productName: "Chicken Breast",
+            purchaseCount: 10,
+            supplierCode: "BRK",
+            supplierName: "Brakes",
+            supplierProductCode: "CHICKEN-1"
+          }
+        ]
+      }
+    });
+    try {
+      const payload = await route.readJson();
+      expect(route.response.statusCode).toBe(200);
+      const candidates = parseHistoricalCandidates(payload);
+
+      expect(candidates).toHaveLength(1);
+      expect(candidates[0]).toMatchObject({
+        id: "BRK-CHICKEN",
+        isRecommended: true,
+        productName: "Chicken Breast",
+        latestPrice: 24.5,
+        latestPurchaseDate: "2026-07-01",
+        packSize: "2x5kg",
+        purchaseCount: 10,
+        supplierCode: "BRK",
+        supplierName: "Brakes",
+        supplierProductCode: "CHICKEN-1",
+        currentInventoryQuantity: 7,
+        recommendedLastPrice: 24.5,
+        recommendedLastPurchaseDate: "2026-07-01",
+        recommendedPackSize: "2x5kg",
+        recommendedProductCode: "CHICKEN-1",
+        recommendedProductName: "Chicken Breast",
+        recommendedPurchaseCount: 10,
+        recommendedSupplierCode: "BRK",
+        recommendedSupplierName: "Brakes",
+        recommendedSupplierProductId: "BRK-CHICKEN"
+      });
+    } finally {
+      route.database.close();
+    }
+  });
+
+  it("supports supplier name search for historical-products with complete candidate and recommendation fields", async () => {
+    const route = invokePurchasingRoute({
+      method: "GET",
+      url: "/api/purchasing/historical-products?query=Brakes",
+      options: {
+        historicalCandidates: () => [
+          {
+            id: "BRK-CHICKEN",
+            latestPrice: 24.5,
+            latestPurchaseDate: "2026-07-01",
+            packSize: "2x5kg",
+            productName: "Chicken Breast",
+            purchaseCount: 10,
+            supplierCode: "BRK",
+            supplierName: "Brakes",
+            supplierProductCode: "CHICKEN-1"
+          }
+        ]
+      }
+    });
+    try {
+      const payload = await route.readJson();
+      expect(route.response.statusCode).toBe(200);
+      const candidates = parseHistoricalCandidates(payload);
+
+      expect(candidates).toHaveLength(1);
+      expect(candidates[0]).toMatchObject({
+        id: "BRK-CHICKEN",
+        isRecommended: true,
+        productName: "Chicken Breast",
+        latestPrice: 24.5,
+        latestPurchaseDate: "2026-07-01",
+        packSize: "2x5kg",
+        purchaseCount: 10,
+        supplierCode: "BRK",
+        supplierName: "Brakes",
+        supplierProductCode: "CHICKEN-1",
+        currentInventoryQuantity: 7,
+        recommendedLastPrice: 24.5,
+        recommendedLastPurchaseDate: "2026-07-01",
+        recommendedPackSize: "2x5kg",
+        recommendedProductCode: "CHICKEN-1",
+        recommendedProductName: "Chicken Breast",
+        recommendedPurchaseCount: 10,
+        recommendedSupplierCode: "BRK",
+        recommendedSupplierName: "Brakes",
+        recommendedSupplierProductId: "BRK-CHICKEN"
+      });
+    } finally {
+      route.database.close();
+    }
   });
 
   it("saves a recognised draft, serves its image, and confirms reviewed rows", async () => {

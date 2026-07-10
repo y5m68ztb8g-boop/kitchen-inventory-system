@@ -429,7 +429,8 @@ function rankedCandidateSearch(
 ) {
   const ranked = rankHistoricalProducts({ candidates, inventoryEntries, productName: query });
   const rankedIds = new Set(ranked.map((candidate) => candidate.id));
-  const queryTokens = new Set(normaliseProductName(query).split(" ").filter(Boolean));
+  const normalisedQuery = normaliseProductName(query);
+  const queryTokens = new Set(normalisedQuery.split(" ").filter(Boolean));
   const compactQuery = query.toLocaleLowerCase("en-GB").replace(/[^a-z0-9]/g, "").replace(/^f(?=\d)/, "");
   const fallback = candidates
     .filter((candidate) => {
@@ -442,7 +443,13 @@ function rankedCandidateSearch(
         .toLocaleLowerCase("en-GB")
         .replace(/[^a-z0-9]/g, "")
         .replace(/^f(?=\d)/, "");
-      return sharesToken || (compactQuery.length > 1 && compactCode.includes(compactQuery));
+      const supplierNameMatches = normaliseProductName(candidate.supplierName).includes(normalisedQuery);
+      const compactSupplierCode = candidate.supplierCode.toLocaleLowerCase("en-GB").replace(/[^a-z0-9]/g, "");
+      return (
+        sharesToken ||
+        (normalisedQuery.length > 1 && supplierNameMatches) ||
+        (compactQuery.length > 1 && (compactCode.includes(compactQuery) || compactSupplierCode.includes(compactQuery)))
+      );
     })
     .map((candidate) => candidateCard(candidate, inventoryEntries))
     .sort(
