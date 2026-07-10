@@ -7,7 +7,7 @@ import Database from "better-sqlite3";
 import sharp from "sharp";
 import * as xlsx from "xlsx";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createPurchasingDatabase, getIntakeSource, getScanImage, savePendingIntake } from "../../server/purchasing/database";
+import { createPurchasingDatabase, getIntakeSource, getScanImage, saveDraftIntake } from "../../server/purchasing/database";
 import { buildCurrentInventoryEntries } from "../../server/purchasing/currentInventory";
 import { MAX_UPLOAD_BYTES, prepareWhiteboardImage } from "../../server/purchasing/imagePreparation";
 import { readMultipartImage } from "../../server/purchasing/multipart";
@@ -938,7 +938,7 @@ describe("purchasing API routes", () => {
     }
   });
 
-  it("saves manual historical matching feedback and reuses it in historical search ordering", async () => {
+  it("saves manual historical matching feedback idempotently through repeated HTTP saves", async () => {
     const firstCandidates = [
       {
         id: "BRK-SAME-A",
@@ -963,6 +963,67 @@ describe("purchasing API routes", () => {
         supplierProductCode: "BC-B"
       }
     ];
+    const { baseUrl, database } = routeOptions({
+      historicalCandidates: () => firstCandidates,
+      historicalInventoryEntries: () => []
+    });
+    const matchedItem = {
+      clientId: "row-1",
+      confidence: 0.98,
+      department: "Kitchen",
+      manualReviewed: true,
+      notes: null,
+      product_name: "cold brew",
+      quantity: 2,
+      raw_text: "2 cold brew",
+      supplierProductId: "BRK-SAME-A",
+      unit: "case"
+    };
+    saveDraftIntake(database, {
+      aiModel: null,
+      id: "feedback-intake-id",
+      generalNotes: "Supplier preference",
+      items: [matchedItem],
+      originalFilename: "event.pdf",
+      originalMimeType: "application/pdf",
+      originalSizeBytes: 1024,
+      sourceBlob: Buffer.from("source-pdf"),
+      sourceType: "pdf",
+      storedMimeType: "application/pdf",
+      storedSizeBytes: 64,
+      unreadableText: []
+    });
+    const firstSaveResponse = await fetch(`${await baseUrl}/api/purchasing/intakes/feedback-intake-id`, {
+      body: JSON.stringify({ items: [matchedItem] }),
+      headers: { "Content-Type": "application/json" },
+      method: "PUT"
+    });
+    const duplicateSaveResponse = await fetch(`${await baseUrl}/api/purchasing/intakes/feedback-intake-id`, {
+      body: JSON.stringify({ items: [matchedItem] }),
+      headers: { "Content-Type": "application/json" },
+      method: "PUT"
+    });
+
+    expect(firstSaveResponse.status).toBe(200);
+    expect(duplicateSaveResponse.status).toBe(200);
+    const feedbackRows = database
+      .prepare(
+        "SELECT confirmation_count AS confirmationCount FROM purchase_match_feedback WHERE normalised_name = ? AND supplier_product_id = ?"
+      )
+      .all("cold brew", "BRK-SAME-A") as Array<{ confirmationCount: number }>;
+    expect(feedbackRows).toEqual([{ confirmationCount: 1 }]);
+
+    const sameTierSearch = await fetch(`${await baseUrl}/api/purchasing/historical-products?query=${encodeURIComponent("cold brew")}`);
+    expect(sameTierSearch.status).toBe(200);
+    const sameTierCandidates = parseHistoricalCandidates(await sameTierSearch.json());
+    expect(sameTierCandidates[0]).toMatchObject({
+      id: "BRK-SAME-A",
+      isRecommended: true,
+      productName: "brew cold blend"
+    });
+  });
+
+  it("keeps higher-tier historical matches above repeated lower-tier feedback", async () => {
     const secondCandidates = [
       {
         id: "BRK-HIGH",
@@ -988,26 +1049,26 @@ describe("purchasing API routes", () => {
       }
     ];
     const { baseUrl, database } = routeOptions({
-      historicalCandidates: () => firstCandidates,
+      historicalCandidates: () => secondCandidates,
       historicalInventoryEntries: () => []
     });
-    const matchedItem = {
-      clientId: "row-1",
+    const lowerTierItem = {
+      clientId: "low-row-1",
       confidence: 0.98,
       department: "Kitchen",
       manualReviewed: true,
       notes: null,
-      product_name: "cold brew",
+      product_name: "cappuccino",
       quantity: 2,
-      raw_text: "2 cold brew",
-      supplierProductId: "BRK-SAME-A",
+      raw_text: "2 cappuccino",
+      supplierProductId: "BRK-HIGH-LOW",
       unit: "case"
     };
-    savePendingIntake(database, {
+    saveDraftIntake(database, {
       aiModel: null,
-      id: "feedback-intake-id",
+      id: "feedback-intake-low-1",
       generalNotes: "Supplier preference",
-      items: [matchedItem],
+      items: [lowerTierItem],
       originalFilename: "event.pdf",
       originalMimeType: "application/pdf",
       originalSizeBytes: 1024,
@@ -1017,11 +1078,11 @@ describe("purchasing API routes", () => {
       storedSizeBytes: 64,
       unreadableText: []
     });
-    savePendingIntake(database, {
+    saveDraftIntake(database, {
       aiModel: null,
-      id: "feedback-intake-id",
+      id: "feedback-intake-low-2",
       generalNotes: "Supplier preference",
-      items: [matchedItem],
+      items: [lowerTierItem],
       originalFilename: "event.pdf",
       originalMimeType: "application/pdf",
       originalSizeBytes: 1024,
@@ -1031,28 +1092,28 @@ describe("purchasing API routes", () => {
       storedSizeBytes: 64,
       unreadableText: []
     });
-    const feedbackRows = database
+    const firstLowTierSaveResponse = await fetch(`${await baseUrl}/api/purchasing/intakes/feedback-intake-low-1`, {
+      body: JSON.stringify({ items: [lowerTierItem] }),
+      headers: { "Content-Type": "application/json" },
+      method: "PUT"
+    });
+    const secondLowTierSaveResponse = await fetch(`${await baseUrl}/api/purchasing/intakes/feedback-intake-low-2`, {
+      body: JSON.stringify({ items: [lowerTierItem] }),
+      headers: { "Content-Type": "application/json" },
+      method: "PUT"
+    });
+
+    expect(firstLowTierSaveResponse.status).toBe(200);
+    expect(secondLowTierSaveResponse.status).toBe(200);
+    const lowTierFeedbackRows = database
       .prepare(
         "SELECT confirmation_count AS confirmationCount FROM purchase_match_feedback WHERE normalised_name = ? AND supplier_product_id = ?"
       )
-      .all("cold brew", "BRK-SAME-A") as Array<{ confirmationCount: number }>;
-    expect(feedbackRows).toEqual([{ confirmationCount: 1 }]);
+      .all("cappuccino", "BRK-HIGH-LOW") as Array<{ confirmationCount: number }>;
+    expect(lowTierFeedbackRows).toEqual([{ confirmationCount: 2 }]);
 
-    const sameTierSearch = await fetch(`${await baseUrl}/api/purchasing/historical-products?query=${encodeURIComponent("cold brew")}`);
-    expect(sameTierSearch.status).toBe(200);
-    const sameTierCandidates = parseHistoricalCandidates(await sameTierSearch.json());
-    expect(sameTierCandidates[0]).toMatchObject({
-      id: "BRK-SAME-A",
-      isRecommended: true,
-      productName: "brew cold blend"
-    });
-
-    const { baseUrl: higherBaseUrl } = routeOptions({
-      historicalCandidates: () => secondCandidates,
-      historicalInventoryEntries: () => []
-    });
     const higherTierSearch = await fetch(
-      `${await higherBaseUrl}/api/purchasing/historical-products?query=${encodeURIComponent("cappuccino")}`
+      `${await baseUrl}/api/purchasing/historical-products?query=${encodeURIComponent("cappuccino")}`
     );
     expect(higherTierSearch.status).toBe(200);
     const higherTierCandidates = parseHistoricalCandidates(await higherTierSearch.json());

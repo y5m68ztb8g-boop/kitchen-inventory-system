@@ -41,6 +41,10 @@ export type HistoricalMatchInput = {
   productName: string;
 };
 
+export type NormalisedHistoricalMatchInput = Omit<HistoricalMatchInput, "productName"> & {
+  normalisedProductName: string;
+};
+
 const tokenAliases = new Map([
   ["chip", "friedpotato"],
   ["fry", "friedpotato"],
@@ -107,7 +111,11 @@ type SemanticMatch = {
 };
 
 export function preferredSupplierForProduct(productName: string) {
-  const tokens = new Set(normaliseProductName(productName).split(" ").filter(Boolean));
+  return preferredSupplierForNormalisedProduct(normaliseProductName(productName));
+}
+
+function preferredSupplierForNormalisedProduct(normalisedProductName: string) {
+  const tokens = new Set(normalisedProductName.split(" ").filter(Boolean));
   if (Array.from(tokens).some((token) => dairyTerms.has(token))) return MARK_MURPHY;
   if (Array.from(tokens).some((token) => seafoodTerms.has(token))) return CAMPBELLS;
   return BRAKES;
@@ -135,7 +143,16 @@ export function normaliseProductName(value: string) {
 }
 
 export function rankHistoricalProducts(input: HistoricalMatchInput): RankedHistoricalProduct[] {
-  const requestedName = normaliseProductName(input.productName);
+  return rankHistoricalProductsForNormalisedName({
+    ...input,
+    normalisedProductName: normaliseProductName(input.productName)
+  });
+}
+
+export function rankHistoricalProductsForNormalisedName(
+  input: NormalisedHistoricalMatchInput
+): RankedHistoricalProduct[] {
+  const requestedName = input.normalisedProductName;
   if (!requestedName) {
     return [];
   }
@@ -154,7 +171,7 @@ export function rankHistoricalProducts(input: HistoricalMatchInput): RankedHisto
   const newestPurchaseTime = Math.max(
     ...semanticCandidates.map(({ candidate }) => parseDate(candidate.latestPurchaseDate))
   );
-  const preferredSupplier = preferredSupplierForProduct(input.productName);
+  const preferredSupplier = preferredSupplierForNormalisedProduct(requestedName);
   const hasPreferredSupplier = semanticCandidates.some(
     ({ candidate }) => candidate.supplierName === preferredSupplier
   );

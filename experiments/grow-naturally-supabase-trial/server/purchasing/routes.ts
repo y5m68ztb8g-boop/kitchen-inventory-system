@@ -21,6 +21,7 @@ import type { PurchaseIntakeItem, SaveIntakeInput } from "./intakeSchema";
 import {
   normaliseProductName,
   rankHistoricalProducts,
+  rankHistoricalProductsForNormalisedName,
   recommendHistoricalProduct,
   type HistoricalInventoryEntry,
   type HistoricalMatchFeedback,
@@ -125,7 +126,7 @@ export function installPurchasingRoutes(server: PurchasingMiddlewareServer, opti
         const inventoryEntries = await historicalInventoryEntries();
         const feedback = listMatchFeedback(options.database, normalisedQuery);
         sendJson(response, 200, {
-          items: rankedCandidateSearch(query, candidates, inventoryEntries, feedback),
+          items: rankedCandidateSearch(normalisedQuery, candidates, inventoryEntries, feedback),
           query
         });
         return;
@@ -427,16 +428,20 @@ async function enrichMatchedItems(
 }
 
 function rankedCandidateSearch(
-  query: string,
+  normalisedQuery: string,
   candidates: HistoricalProductCandidate[],
   inventoryEntries: HistoricalInventoryEntry[],
   feedback: HistoricalMatchFeedback[]
 ) {
-  const ranked = rankHistoricalProducts({ candidates, feedback, inventoryEntries, productName: query });
+  const ranked = rankHistoricalProductsForNormalisedName({
+    candidates,
+    feedback,
+    inventoryEntries,
+    normalisedProductName: normalisedQuery
+  });
   const rankedIds = new Set(ranked.map((candidate) => candidate.id));
-  const normalisedQuery = normaliseProductName(query);
   const queryTokens = new Set(normalisedQuery.split(" ").filter(Boolean));
-  const compactQuery = query.toLocaleLowerCase("en-GB").replace(/[^a-z0-9]/g, "").replace(/^f(?=\d)/, "");
+  const compactQuery = normalisedQuery.replace(/[^a-z0-9]/g, "").replace(/^f(?=\d)/, "");
   const fallback = candidates
     .filter((candidate) => {
       if (rankedIds.has(candidate.id)) {
