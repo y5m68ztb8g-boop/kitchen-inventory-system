@@ -120,14 +120,14 @@ export function installPurchasingRoutes(server: PurchasingMiddlewareServer, opti
           methodNotAllowed(response);
           return;
         }
-        const query = url.searchParams.get("query")?.trim() ?? "";
-        const normalisedQuery = normaliseProductName(query);
+        const rawQuery = url.searchParams.get("query")?.trim() ?? "";
+        const normalisedQuery = normaliseProductName(rawQuery);
         const candidates = await historicalCandidates();
         const inventoryEntries = await historicalInventoryEntries();
         const feedback = listMatchFeedback(options.database, normalisedQuery);
         sendJson(response, 200, {
-          items: rankedCandidateSearch(normalisedQuery, candidates, inventoryEntries, feedback),
-          query
+          items: rankedCandidateSearch(normalisedQuery, rawQuery, candidates, inventoryEntries, feedback),
+          query: rawQuery
         });
         return;
       }
@@ -429,6 +429,7 @@ async function enrichMatchedItems(
 
 function rankedCandidateSearch(
   normalisedQuery: string,
+  rawQuery: string,
   candidates: HistoricalProductCandidate[],
   inventoryEntries: HistoricalInventoryEntry[],
   feedback: HistoricalMatchFeedback[]
@@ -441,7 +442,10 @@ function rankedCandidateSearch(
   });
   const rankedIds = new Set(ranked.map((candidate) => candidate.id));
   const queryTokens = new Set(normalisedQuery.split(" ").filter(Boolean));
-  const compactQuery = normalisedQuery.replace(/[^a-z0-9]/g, "").replace(/^f(?=\d)/, "");
+  const compactQuery = rawQuery
+    .toLocaleLowerCase("en-GB")
+    .replace(/[^a-z0-9]/g, "")
+    .replace(/^f(?=\d)/, "");
   const fallback = candidates
     .filter((candidate) => {
       if (rankedIds.has(candidate.id)) {

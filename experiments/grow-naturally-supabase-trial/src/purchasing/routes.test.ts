@@ -933,10 +933,63 @@ describe("purchasing API routes", () => {
         recommendedSupplierName: "Brakes",
         recommendedSupplierProductId: "BRK-CHICKEN"
       });
-    } finally {
+      } finally {
       route.database.close();
     }
   });
+
+  it.each(["FRIES-1", "FRIES1"] as const)(
+    "supports fallback matching by supplierProductCode even if normalised query aliases the same text (%s)",
+    async (query) => {
+      const route = invokePurchasingRoute({
+        method: "GET",
+        url: `/api/purchasing/historical-products?query=${encodeURIComponent(query)}`,
+        options: {
+          historicalCandidates: () => [
+            {
+              id: "BRK-FRIES-1",
+              latestPrice: 11.5,
+              latestPurchaseDate: "2026-07-01",
+              packSize: "12x1kg",
+              productName: "Crispy Seaweed",
+              purchaseCount: 7,
+              supplierCode: "CMP",
+              supplierName: "Crispy Foods",
+              supplierProductCode: "FRIES-1"
+            },
+            {
+              id: "BRK-OTHER",
+              latestPrice: 6.25,
+              latestPurchaseDate: "2026-07-01",
+              packSize: "8x1kg",
+              productName: "Apple Juice",
+              purchaseCount: 1,
+              supplierCode: "BRK",
+              supplierName: "Brakes",
+              supplierProductCode: "OJ-1"
+            }
+          ],
+          historicalInventoryEntries: () => []
+        }
+      });
+
+      try {
+        const payload = await route.readJson();
+        expect(route.response.statusCode).toBe(200);
+        const candidates = parseHistoricalCandidates(payload);
+
+        expect(candidates).toHaveLength(1);
+        expect(candidates[0]).toMatchObject({
+          id: "BRK-FRIES-1",
+          productName: "Crispy Seaweed",
+          supplierProductCode: "FRIES-1",
+          isRecommended: true
+        });
+      } finally {
+        route.database.close();
+      }
+    }
+  );
 
   it("saves manual historical matching feedback idempotently through repeated HTTP saves", async () => {
     const firstCandidates = [
