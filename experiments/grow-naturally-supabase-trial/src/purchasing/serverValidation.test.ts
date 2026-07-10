@@ -10,6 +10,10 @@ import {
 } from "../../server/purchasing/imagePreparation";
 import { parseWhiteboardRecognition } from "../../server/purchasing/recognitionSchema";
 
+it("runs with the shared setup in the Node environment", () => {
+  expect(typeof window).toBe("undefined");
+});
+
 async function makeTestImage(format: "jpeg" | "png" | "webp") {
   const image = sharp({
     create: { width: 32, height: 32, channels: 3, background: "white" }
@@ -128,6 +132,25 @@ describe("prepareWhiteboardImage", () => {
 
   it("maps heif metadata to the HEIC MIME type", () => {
     expect(mapSharpFormatToMimeType("heif")).toBe("image/heic");
+  });
+
+  it("decodes a real HEIF image and converts it to WebP", async () => {
+    const buffer = await sharp({
+      create: { width: 32, height: 32, channels: 3, background: "white" }
+    })
+      .heif({ compression: "av1" })
+      .toBuffer();
+
+    expect((await sharp(buffer).metadata()).format).toBe("heif");
+
+    const result = await prepareWhiteboardImage({
+      buffer,
+      filename: "board.heif",
+      browserMimeType: "image/heif"
+    });
+
+    expect(result.storedMimeType).toBe("image/webp");
+    expect((await sharp(result.buffer).metadata()).format).toBe("webp");
   });
 
   it("rejects content that only pretends to be an image", async () => {
