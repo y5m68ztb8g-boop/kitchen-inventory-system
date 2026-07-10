@@ -36,7 +36,7 @@ const COPY: Record<Locale, AppCopy> = {
       moduleGroupLabel: "主功能入口",
       search: "搜索",
       area: "区域",
-      purchasing: "采购",
+      purchasing: "AI录入",
       totalValue: "产品库存总金额"
     },
     routes: {
@@ -60,7 +60,7 @@ const COPY: Record<Locale, AppCopy> = {
       moduleGroupLabel: "Main destinations",
       search: "Search",
       area: "Area",
-      purchasing: "Purchasing",
+      purchasing: "AI Intake",
       totalValue: "Total Inventory Value"
     },
     routes: {

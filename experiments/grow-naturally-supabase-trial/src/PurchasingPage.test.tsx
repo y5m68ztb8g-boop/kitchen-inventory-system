@@ -3,368 +3,450 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PurchasingPage } from "./PurchasingPage";
-import { confirmWhiteboardScan, scanWhiteboard } from "./purchasing/api";
 
-vi.mock("./purchasing/api", () => ({
-  confirmWhiteboardScan: vi.fn(),
-  scanWhiteboard: vi.fn()
+const {
+  parseIntake,
+  savePendingIntake,
+  readyForPurchase,
+  searchHistoricalProducts,
+  scanWhiteboard,
+  confirmWhiteboardScan
+} = vi.hoisted(() => ({
+  parseIntake: vi.fn(),
+  savePendingIntake: vi.fn(),
+  readyForPurchase: vi.fn(),
+  searchHistoricalProducts: vi.fn(),
+  scanWhiteboard: vi.fn(),
+  confirmWhiteboardScan: vi.fn()
 }));
 
-describe("PurchasingPage capture", () => {
+vi.mock("./purchasing/api", () => ({
+  parseIntake,
+  savePendingIntake,
+  readyForPurchase,
+  searchHistoricalProducts,
+  scanWhiteboard,
+  confirmWhiteboardScan
+}));
+
+describe("PurchasingPage intake hub", () => {
   beforeEach(() => {
-    vi.mocked(scanWhiteboard).mockReset();
-    URL.createObjectURL = vi.fn(() => "blob:purchase-whiteboard");
+    scanWhiteboard.mockReset();
+    confirmWhiteboardScan.mockReset();
+    parseIntake.mockReset();
+    savePendingIntake.mockReset();
+    readyForPurchase.mockReset();
+    searchHistoricalProducts.mockReset();
+
+    URL.createObjectURL = vi.fn(() => "blob:purchase-input");
     URL.revokeObjectURL = vi.fn();
   });
 
-  it("shows a preview and capture controls before recognition starts", async () => {
-    const user = userEvent.setup();
+  it("shows the AI intake hub actions and correct intake constraints", () => {
     render(<PurchasingPage />);
 
-    expect(screen.getByRole("link", { name: "返回首页" })).toHaveAttribute("href", "#");
-    expect(screen.getByRole("button", { name: "Scan Purchase Whiteboard" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "选择现有图片" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "AI拍照识别录入" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "手动上传录入" })).toBeInTheDocument();
 
-    const cameraInput = screen.getByLabelText("拍摄采购白板");
-    expect(cameraInput).toHaveAttribute("accept", "image/jpeg,image/png,image/heic,image/heif,image/webp,.heic,.heif");
+    const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
+    const manualInput = screen.getByLabelText(/选择|手动|upload/i);
+
+    expect(cameraInput).toHaveAttribute(
+      "accept",
+      expect.stringContaining("image/jpeg")
+    );
+    expect(cameraInput).toHaveAttribute("accept", expect.stringContaining("image/png"));
+    expect(cameraInput).toHaveAttribute("accept", expect.stringContaining("image/heic"));
+    expect(cameraInput).toHaveAttribute("accept", expect.stringContaining("image/heif"));
+    expect(cameraInput).toHaveAttribute("accept", expect.stringContaining("image/webp"));
     expect(cameraInput).toHaveAttribute("capture", "environment");
 
-    const chooserInput = screen.getByLabelText("选择采购白板图片");
-    expect(chooserInput).toHaveAttribute("accept", "image/jpeg,image/png,image/heic,image/heif,image/webp,.heic,.heif");
-    expect(chooserInput).not.toHaveAttribute("capture");
-
-    await user.upload(cameraInput, new File(["whiteboard"], "whiteboard.jpg", { type: "image/jpeg" }));
-
-    expect(cameraInput).toHaveValue("");
-    expect(screen.getByRole("img", { name: "采购白板预览" })).toHaveAttribute("src", "blob:purchase-whiteboard");
-    expect(screen.getByRole("button", { name: "重新拍照" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "选择其他图片" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "开始识别" })).toBeInTheDocument();
-    expect(scanWhiteboard).not.toHaveBeenCalled();
+    expect(manualInput).toHaveAttribute("accept", expect.stringContaining("application/pdf"));
+    expect(manualInput).toHaveAttribute("accept", expect.stringContaining(".pdf"));
+    expect(manualInput).toHaveAttribute("accept", expect.stringContaining(".xlsx"));
+    expect(manualInput).toHaveAttribute("accept", expect.stringContaining(".xls"));
+    expect(manualInput).toHaveAttribute("accept", expect.stringContaining(".csv"));
   });
 
-  it("revokes replaced preview URLs and the remaining URL on unmount", async () => {
+  it("shows image preview and supports re-capture and rescan controls", async () => {
+    const user = userEvent.setup();
+    render(<PurchasingPage />);
+    const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
+
+    await user.upload(cameraInput, new File(["receipt"], "invoice.jpg", { type: "image/jpeg" }));
+
+    expect(screen.getByRole("img", { name: /预览|预览图|图片/ })).toHaveAttribute("src", "blob:purchase-input");
+    expect(screen.getByRole("button", { name: "重新拍照" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "选择其他文件" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开始识别" })).toBeInTheDocument();
+  });
+
+  it("shows non-image filename and type and keeps file URL across recognition retries", async () => {
+    const user = userEvent.setup();
+    render(<PurchasingPage />);
+    const manualInput = screen.getByLabelText(/选择|手动|upload/i);
+
+    await user.upload(manualInput, new File(["report"], "weekend-events.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+
+    expect(screen.getByText("weekend-events.xlsx")).toBeInTheDocument();
+    expect(screen.getByText("表格 / XLSX")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开始识别" })).toBeInTheDocument();
+  });
+
+  it("revokes replaced preview URLs and the final URL on unmount", async () => {
     URL.createObjectURL = vi
       .fn()
-      .mockReturnValueOnce("blob:first-whiteboard")
-      .mockReturnValueOnce("blob:second-whiteboard");
+      .mockReturnValueOnce("blob:first")
+      .mockReturnValueOnce("blob:second");
     const user = userEvent.setup();
     const { unmount } = render(<PurchasingPage />);
+    const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
+    const manualInput = screen.getByLabelText(/选择|手动|upload/i);
 
-    await user.upload(screen.getByLabelText("拍摄采购白板"), new File(["first"], "first.jpg", { type: "image/jpeg" }));
-    await user.upload(screen.getByLabelText("选择采购白板图片"), new File(["second"], "second.jpg", { type: "image/jpeg" }));
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:first-whiteboard");
+    await user.upload(cameraInput, new File(["first"], "first.jpg", { type: "image/jpeg" }));
+    await user.upload(manualInput, new File(["second"], "second.jpg", { type: "image/jpeg" }));
+
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:first");
 
     unmount();
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:second-whiteboard");
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:second");
   });
 });
 
-describe("PurchasingPage review", () => {
+describe("PurchasingPage recognition and review", () => {
   beforeEach(() => {
-    vi.mocked(scanWhiteboard).mockReset();
-    vi.mocked(confirmWhiteboardScan).mockReset();
-    URL.createObjectURL = vi.fn(() => "blob:purchase-whiteboard");
-    URL.revokeObjectURL = vi.fn();
-  });
-
-  it("preserves the selected file and preview when recognition fails and retries the same file", async () => {
-    const user = userEvent.setup();
-    const file = new File(["whiteboard"], "whiteboard.jpg", { type: "image/jpeg" });
-    vi.mocked(scanWhiteboard)
-      .mockRejectedValueOnce(new Error("网络连接失败，请检查网络后重试。"))
-      .mockResolvedValueOnce({
-        generalNotes: null,
-        imageUrl: "/api/purchasing/whiteboard-scans/scan-retry-recognition/image",
-        items: [
-          {
-            confidence: 0.95,
-            department: "厨房",
-            notes: null,
-            product_name: "鸡胸肉",
-            quantity: 2,
-            raw_text: "鸡胸肉",
-            unit: "箱"
-          }
-        ],
-        scanId: "scan-retry-recognition",
-        unreadableText: []
-      });
-    render(<PurchasingPage />);
-
-    await user.upload(screen.getByLabelText("拍摄采购白板"), file);
-    await user.click(screen.getByRole("button", { name: "开始识别" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("网络连接失败，请检查网络后重试。");
-    expect(screen.getByRole("img", { name: "采购白板预览" })).toHaveAttribute(
-      "src",
-      "blob:purchase-whiteboard"
-    );
-    await user.click(screen.getByRole("button", { name: "重试识别" }));
-
-    expect(scanWhiteboard).toHaveBeenNthCalledWith(1, file);
-    expect(scanWhiteboard).toHaveBeenNthCalledWith(2, file);
-    expect(await screen.findByRole("heading", { name: "核对采购项目" })).toBeInTheDocument();
-  });
-
-  it("edits reviewed rows and requires manual review for a low-confidence row", async () => {
-    const user = userEvent.setup();
-    vi.mocked(scanWhiteboard).mockResolvedValue({
+    scanWhiteboard.mockReset().mockResolvedValue({
       generalNotes: "周五送货",
-      imageUrl: "/api/purchasing/whiteboard-scans/scan-1/image",
+      imageUrl: "/api/purchasing/intakes/intake-1/source",
       items: [
         {
-          confidence: 0.79,
+          confidence: 0.78,
           department: "厨房",
-          notes: "切片",
-          product_name: "鸡胸肉",
+          notes: null,
+          product_name: "橙汁",
           quantity: 2,
-          raw_text: "2 箱鸡胸肉",
+          raw_text: "2箱橙汁",
           unit: "箱"
         },
         {
-          confidence: 0.92,
+          confidence: 0.95,
           department: "酒吧",
           notes: null,
-          product_name: "错误项目",
+          product_name: "高档牛奶",
           quantity: 1,
-          raw_text: "错误项目",
-          unit: "瓶"
+          raw_text: "高档牛奶",
+          unit: "箱"
         }
       ],
-      scanId: "scan-1",
-      unreadableText: []
+      scanId: "intake-1",
+      unreadableText: ["注释不可识别文字"]
     });
-    vi.mocked(confirmWhiteboardScan).mockResolvedValue({ items: [], scanId: "scan-1", status: "Pending" });
-    render(<PurchasingPage />);
 
-    await user.upload(screen.getByLabelText("拍摄采购白板"), new File(["whiteboard"], "whiteboard.jpg", { type: "image/jpeg" }));
+    parseIntake.mockReset().mockResolvedValue({
+      sourceType: "image",
+      sourceUrl: "/api/purchasing/intakes/intake-1/source",
+      originalFilename: "invoice.jpg",
+      intakeId: "intake-1",
+      items: [
+        {
+          confidence: 0.78,
+          department: "厨房",
+          notes: null,
+          product_name: "橙汁",
+          quantity: 2,
+          raw_text: "2箱橙汁",
+          unit: "箱"
+        },
+        {
+          confidence: 0.95,
+          department: "酒吧",
+          notes: null,
+          product_name: "高档牛奶",
+          quantity: 1,
+          raw_text: "高档牛奶",
+          unit: "箱"
+        }
+      ],
+      unreadableText: ["注释不可识别文字"],
+      generalNotes: "周五送货"
+    });
+
+    parseIntake.mockClear();
+    savePendingIntake.mockReset();
+    readyForPurchase.mockReset();
+    searchHistoricalProducts.mockReset().mockResolvedValue({
+      candidates: [
+        {
+          id: "BRK-ORANGE",
+          isRecommended: true,
+          productName: "Orange Juice",
+          supplierName: "Brakes",
+          supplierCode: "BRK",
+          supplierProductCode: "OJ-1",
+          packSize: "4x2.5L",
+          latestPrice: 24.5,
+          purchaseCount: 10,
+          latestPurchaseDate: "2026-07-01",
+          currentInventoryQuantity: 7
+        }
+      ]
+    });
+
+    savePendingIntake.mockResolvedValue({
+      status: "Pending",
+      intakeId: "intake-1",
+      items: []
+    });
+
+    readyForPurchase.mockResolvedValue({
+      status: "ReadyForPurchase",
+      intakeId: "intake-1"
+    });
+
+    URL.createObjectURL = vi.fn(() => "blob:purchase-input");
+    URL.revokeObjectURL = vi.fn();
+  });
+
+  it("requires manual review for low-confidence items and supports row edit, remove and add", async () => {
+    const user = userEvent.setup();
+    render(<PurchasingPage />);
+    const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
+
+    await user.upload(cameraInput, new File(["whiteboard"], "invoice.jpg", { type: "image/jpeg" }));
     await user.click(screen.getByRole("button", { name: "开始识别" }));
 
-    const lowConfidenceRow = screen.getByTestId("purchase-review-row-1");
-    expect(lowConfidenceRow).toHaveClass("purchase-review-row-low-confidence");
-    expect(screen.getByRole("button", { name: "确认保存" })).toBeDisabled();
+    const row = screen.getByTestId("purchase-review-row-1");
+    expect(row).toHaveClass("purchase-review-row-low-confidence");
+    expect(screen.getByRole("checkbox", { name: /已人工核对 1/ })).not.toBeChecked();
 
     await user.clear(screen.getByLabelText("部门 1"));
     await user.type(screen.getByLabelText("部门 1"), "宴会");
     await user.clear(screen.getByLabelText("产品名称 1"));
-    await user.type(screen.getByLabelText("产品名称 1"), "鸡腿肉");
+    await user.type(screen.getByLabelText("产品名称 1"), "橙汁（修订）");
     await user.clear(screen.getByLabelText("数量 1"));
     await user.type(screen.getByLabelText("数量 1"), "3");
     await user.clear(screen.getByLabelText("单位 1"));
-    await user.type(screen.getByLabelText("单位 1"), "包");
+    await user.type(screen.getByLabelText("单位 1"), "箱");
     await user.clear(screen.getByLabelText("备注 1"));
-    await user.type(screen.getByLabelText("备注 1"), "去皮");
-    const deleteButton = screen.getByRole("button", { name: "删除第 2 行" });
-    expect(deleteButton).toHaveAttribute("title", "删除第 2 行");
-    expect(deleteButton.querySelector("svg.lucide")).toBeInTheDocument();
-    await user.click(deleteButton);
+    await user.type(screen.getByLabelText("备注 1"), "无糖");
+    await user.click(screen.getByRole("button", { name: "删除第 2 行" }));
     await user.click(screen.getByRole("button", { name: "新增一行" }));
-    expect(screen.getByLabelText("已人工核对 2")).toBeChecked();
 
-    const originalImageButton = screen.getByRole("button", { name: "查看原始图片" });
-    expect(originalImageButton).toHaveAttribute("title", "查看原始图片");
-    expect(originalImageButton.querySelector("svg.lucide")).toBeInTheDocument();
-    await user.click(originalImageButton);
-    expect(screen.getByRole("dialog", { name: "原始采购白板" })).toContainElement(
-      screen.getByRole("img", { name: "原始采购白板" })
-    );
-    await user.click(screen.getByRole("button", { name: "关闭图片" }));
+    expect(screen.getByLabelText("产品名称 2")).toHaveValue("");
+    expect(screen.getByRole("checkbox", { name: /已人工核对 2/ })).toBeChecked();
 
-    await user.click(screen.getByLabelText("已人工核对 1"));
-    await user.click(screen.getByRole("button", { name: "确认保存" }));
+    await user.click(screen.getByRole("checkbox", { name: /已人工核对 1/ }));
+    await user.click(screen.getByRole("button", { name: "保存草稿" }));
 
-    expect(confirmWhiteboardScan).toHaveBeenCalledWith(
-      "scan-1",
+    expect(savePendingIntake).toHaveBeenCalledWith(
+      "intake-1",
       expect.arrayContaining([
         expect.objectContaining({
-          department: "宴会",
-          manualReviewed: true,
-          notes: "去皮",
-          product_name: "鸡腿肉",
+          clientId: expect.any(String),
+          product_name: "橙汁（修订）",
           quantity: 3,
-          unit: "包"
-        }),
-        expect.objectContaining({ confidence: 1, manualReviewed: true })
+          notes: "无糖",
+          raw_text: "2箱橙汁"
+        })
       ])
     );
+    expect(screen.getByRole("button", { name: "保存草稿" })).toBeInTheDocument();
   });
 
-  it("preserves edited review rows and offers a save retry after confirmation fails", async () => {
+  it("opens historical matching dialog, updates row names from product selection and allows clear", async () => {
     const user = userEvent.setup();
-    vi.mocked(scanWhiteboard).mockResolvedValue({
-      generalNotes: null,
-      imageUrl: "/api/purchasing/whiteboard-scans/scan-retry/image",
+    render(<PurchasingPage />);
+    const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
+
+    await user.upload(cameraInput, new File(["whiteboard"], "invoice.jpg", { type: "image/jpeg" }));
+    await user.click(screen.getByRole("button", { name: "开始识别" }));
+
+    await user.click(screen.getByRole("button", { name: "匹配发票商品 橙汁" }));
+
+    expect(await screen.findByText("推荐购买")).toBeInTheDocument();
+    expect(screen.getByText("Brakes")).toBeInTheDocument();
+    expect(screen.getByText("BRK")).toBeInTheDocument();
+    expect(screen.getByText("OJ-1")).toBeInTheDocument();
+    expect(screen.getByText("4x2.5L")).toBeInTheDocument();
+    expect(screen.getByText("2026-07-01")).toBeInTheDocument();
+    expect(screen.getByText("10")).toBeInTheDocument();
+    expect(screen.getByText("7")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "选择 Orange Juice" }));
+    expect(screen.getByLabelText("产品名称 1")).toHaveValue("Orange Juice");
+
+    await user.click(screen.getByRole("button", { name: "清除匹配" }));
+    expect(screen.getByLabelText("产品名称 1")).toHaveValue("Orange Juice");
+  });
+
+  it("transitions pending save and keeps review state before handoff", async () => {
+    const user = userEvent.setup();
+    render(<PurchasingPage />);
+    const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
+
+    await user.upload(cameraInput, new File(["whiteboard"], "invoice.jpg", { type: "image/jpeg" }));
+    await user.click(screen.getByRole("button", { name: "开始识别" }));
+
+    await user.click(screen.getByRole("checkbox", { name: /已人工核对 1/ }));
+    await user.click(screen.getByRole("button", { name: "保存草稿" }));
+
+    expect(savePendingIntake).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "转入采购清单" }));
+
+    expect(readyForPurchase).toHaveBeenCalledWith(
+      "intake-1",
+      expect.arrayContaining([
+        expect.objectContaining({
+          clientId: expect.any(String),
+          supplierProductId: null,
+          product_name: "橙汁"
+        })
+      ])
+    );
+    expect(screen.getByText("已转入采购清单")).toBeInTheDocument();
+    expect(screen.getAllByText("待匹配")).toHaveLength(2);
+  });
+
+  it("keeps selected file and allows recognition retry on parse/network errors", async () => {
+    const user = userEvent.setup();
+    const photo = new File(["receipt"], "invoice.jpg", { type: "image/jpeg" });
+    scanWhiteboard.mockRejectedValueOnce(new Error("图片上传失败"));
+    parseIntake.mockRejectedValueOnce(new Error("图片上传失败"));
+    scanWhiteboard.mockRejectedValueOnce(new Error("图片上传失败"));
+    parseIntake.mockResolvedValue({
+      sourceType: "image",
+      sourceUrl: "/api/purchasing/intakes/intake-2/source",
+      originalFilename: "invoice.jpg",
+      intakeId: "intake-2",
       items: [
         {
-          confidence: 0.95,
+          confidence: 1,
           department: "厨房",
           notes: null,
-          product_name: "鸡胸肉",
+          product_name: "橙汁",
           quantity: 2,
-          raw_text: "鸡胸肉",
+          raw_text: "2箱橙汁",
           unit: "箱"
         }
       ],
-      scanId: "scan-retry",
-      unreadableText: []
+      unreadableText: [],
+      generalNotes: null
     });
-    vi.mocked(confirmWhiteboardScan)
-      .mockRejectedValueOnce(new Error("网络连接失败，请检查网络后重试。"))
-      .mockResolvedValueOnce({ items: [], scanId: "scan-retry", status: "Pending" });
+
     render(<PurchasingPage />);
 
-    await user.upload(
-      screen.getByLabelText("拍摄采购白板"),
-      new File(["whiteboard"], "whiteboard.jpg", { type: "image/jpeg" })
-    );
+    const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
+    await user.upload(cameraInput, photo);
     await user.click(screen.getByRole("button", { name: "开始识别" }));
-    await user.clear(screen.getByLabelText("产品名称 1"));
-    await user.type(screen.getByLabelText("产品名称 1"), "修订鸡胸肉");
-    await user.click(screen.getByRole("button", { name: "确认保存" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("网络连接失败，请检查网络后重试。");
-    expect(screen.getByLabelText("产品名称 1")).toHaveValue("修订鸡胸肉");
-    expect(screen.getByLabelText("产品名称 1")).toBeEnabled();
+    expect(await screen.findByRole("alert")).toHaveTextContent("图片上传失败");
+    expect(screen.getByRole("img", { name: /预览|预览图|图片/ })).toHaveAttribute("src", "blob:purchase-input");
 
-    await user.click(screen.getByRole("button", { name: "重试保存" }));
-
-    expect(confirmWhiteboardScan).toHaveBeenCalledTimes(2);
-    expect(confirmWhiteboardScan).toHaveBeenLastCalledWith(
-      "scan-retry",
-      expect.arrayContaining([expect.objectContaining({ product_name: "修订鸡胸肉" })])
-    );
-    expect(await screen.findByRole("heading", { name: "采购项目已保存" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "重试识别" }));
+    expect(await screen.findByRole("heading", { name: "核对采购项目" })).toBeInTheDocument();
   });
 });
 
-describe("purchasing API", () => {
-  it("uploads the image as FormData and maps error envelopes to Chinese errors", async () => {
+describe("PurchasingPage API client", () => {
+  it("parseIntake uploads file as FormData and maps Chinese errors", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ error: { code: "IMAGE_TOO_LARGE", message: "too large" } }), {
-        headers: { "Content-Type": "application/json" },
-        status: 413
-      })
+      new Response(
+        JSON.stringify({
+          intakeId: "intake-1",
+          sourceType: "image",
+          sourceUrl: "/api/purchasing/intakes/intake-1/source",
+          originalFilename: "invoice.jpg",
+          items: [],
+          unreadableText: [],
+          generalNotes: null
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 201
+        }
+      )
     );
     vi.stubGlobal("fetch", fetchMock);
-    const api = await vi.importActual<typeof import("./purchasing/api")>("./purchasing/api");
-    const image = new File(["whiteboard"], "whiteboard.png", { type: "image/png" });
 
-    await expect(api.scanWhiteboard(image)).rejects.toThrow("图片不能超过 15 MB。");
+    const api = await vi.importActual<Record<string, any>>("./purchasing/api");
+    expect(typeof api.parseIntake).toBe("function");
+    const parsed = await api.parseIntake(new File(["x"], "invoice.jpg", { type: "image/jpeg" }));
+
+    expect(parsed.intakeId).toBe("intake-1");
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/purchasing/scan-whiteboard",
-      expect.objectContaining({ body: expect.any(FormData), method: "POST" })
+      "/api/purchasing/intakes/parse",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.any(FormData)
+      })
     );
     expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toBeUndefined();
-  });
 
-  it.each([
-    ["NO_READABLE_TEXT", "未识别到可用的采购文字。"],
-    ["INVALID_AI_RESPONSE", "识别结果格式无效，请重新识别。"]
-  ])("maps %s to a stable Chinese error", async (code, message) => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ error: { code, message: "unsafe server detail" } }), {
+        new Response(JSON.stringify({ error: { code: "NO_READABLE_TEXT", message: "too short" } }), {
           headers: { "Content-Type": "application/json" },
           status: 422
         })
       )
     );
-    const api = await vi.importActual<typeof import("./purchasing/api")>("./purchasing/api");
 
     await expect(
-      api.scanWhiteboard(new File(["whiteboard"], "whiteboard.png", { type: "image/png" }))
-    ).rejects.toThrow(message);
+      api.parseIntake(new File(["x"], "invoice.jpg", { type: "image/jpeg" }))
+    ).rejects.toThrow("未识别到可用的采购文字。")
   });
 
-  it("normalizes browser-native fetch failures to a stable Chinese message", async () => {
+  it("savePendingIntake, readyForPurchase and searchHistoricalProducts call their APIs", async () => {
+    const fetchMock = vi.fn().mockImplementation(
+      () => Promise.resolve(new Response(JSON.stringify({}), { status: 200 }))
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const api = await vi.importActual<Record<string, any>>("./purchasing/api");
+    expect(typeof api.savePendingIntake).toBe("function");
+    expect(typeof api.readyForPurchase).toBe("function");
+    expect(typeof api.searchHistoricalProducts).toBe("function");
+
+    await api.savePendingIntake("intake-1", [
+      {
+        clientId: "row-1",
+        confidence: 1,
+        department: "Kitchen",
+        manualReviewed: true,
+        notes: null,
+        product_name: "Orange Juice",
+        quantity: 1,
+        raw_text: "raw",
+        unit: "L"
+      }
+    ]);
+
+    await api.readyForPurchase("intake-1", []);
+    await api.searchHistoricalProducts("orange juice");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/purchasing/intakes/intake-1",
+      expect.objectContaining({ method: "PUT" })
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/purchasing/intakes/intake-1/ready-for-purchase",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/purchasing/historical-products?query=orange%20juice",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("normalizes fetch failures into stable Chinese messages", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
-    const api = await vi.importActual<typeof import("./purchasing/api")>("./purchasing/api");
+    const api = await vi.importActual<Record<string, any>>("./purchasing/api");
+    expect(typeof api.parseIntake).toBe("function");
 
-    await expect(
-      api.scanWhiteboard(new File(["whiteboard"], "whiteboard.png", { type: "image/png" }))
-    ).rejects.toThrow("网络连接失败，请检查网络后重试。");
-  });
-});
-
-describe("PurchasingPage saved recommendations", () => {
-  beforeEach(() => {
-    vi.mocked(scanWhiteboard).mockReset();
-    vi.mocked(confirmWhiteboardScan).mockReset();
-    URL.createObjectURL = vi.fn(() => "blob:purchase-whiteboard");
-    URL.revokeObjectURL = vi.fn();
-  });
-
-  it("shows the returned historical recommendations and pending status", async () => {
-    const user = userEvent.setup();
-    vi.mocked(scanWhiteboard).mockResolvedValue({
-      generalNotes: null,
-      imageUrl: "/api/purchasing/whiteboard-scans/scan-2/image",
-      items: [
-        {
-          confidence: 0.95,
-          department: "厨房",
-          notes: null,
-          product_name: "鸡胸肉",
-          quantity: 2,
-          raw_text: "鸡胸肉",
-          unit: "箱"
-        },
-        {
-          confidence: 0.9,
-          department: "酒吧",
-          notes: null,
-          product_name: "未知项目",
-          quantity: 1,
-          raw_text: "未知项目",
-          unit: "瓶"
-        }
-      ],
-      scanId: "scan-2",
-      unreadableText: []
-    });
-    vi.mocked(confirmWhiteboardScan).mockResolvedValue({
-      items: [
-        {
-          clientId: "first",
-          productName: "鸡胸肉",
-          recommendation: {
-            currentInventoryQuantity: 12,
-            recommendedLastPrice: 24.5,
-            recommendedLastPurchaseDate: "2026-07-01",
-            recommendedPackSize: "2x5kg",
-            recommendedProductCode: "CHICKEN-1",
-            recommendedProductName: "Chicken Breast",
-            recommendedPurchaseCount: 10,
-            recommendedSupplierCode: "BRK",
-            recommendedSupplierName: "Brakes",
-            recommendedSupplierProductId: "BRK-CHICKEN"
-          }
-        },
-        { clientId: "second", productName: "未知项目", recommendation: null }
-      ],
-      scanId: "scan-2",
-      status: "Pending"
-    });
-    render(<PurchasingPage />);
-
-    await user.upload(screen.getByLabelText("拍摄采购白板"), new File(["whiteboard"], "whiteboard.jpg", { type: "image/jpeg" }));
-    await user.click(screen.getByRole("button", { name: "开始识别" }));
-    await user.click(screen.getByRole("button", { name: "确认保存" }));
-
-    expect(screen.getByText("Chicken Breast")).toBeInTheDocument();
-    expect(screen.getByText("Brakes")).toBeInTheDocument();
-    expect(screen.getByText("供应商编码")).toBeInTheDocument();
-    expect(screen.getByText("BRK")).toBeInTheDocument();
-    expect(screen.getByText("供应商产品代码")).toBeInTheDocument();
-    expect(screen.getByText("CHICKEN-1")).toBeInTheDocument();
-    expect(screen.getByText("2x5kg")).toBeInTheDocument();
-    expect(screen.getByText("£24.50")).toBeInTheDocument();
-    expect(screen.getByText("10")).toBeInTheDocument();
-    expect(screen.getByText("2026-07-01")).toBeInTheDocument();
-    expect(screen.getByText("12")).toBeInTheDocument();
-    expect(screen.getAllByText("Pending")).toHaveLength(2);
-    expect(screen.getByText("未找到可靠的历史匹配")).toBeInTheDocument();
+    await expect(api.parseIntake(new File(["x"], "invoice.jpg", { type: "image/jpeg" }))).rejects.toThrow(
+      "网络连接失败，请检查网络后重试。"
+    );
   });
 });

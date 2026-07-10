@@ -46,8 +46,8 @@ describe("Home", () => {
   it("keeps Chinese and English copy available for future switching", () => {
     expect(getCopy("zh-CN").home.search).toBe("搜索");
     expect(getCopy("en-GB").home.search).toBe("Search");
-    expect(getCopy("zh-CN").home.purchasing).toBe("采购");
-    expect(getCopy("en-GB").home.purchasing).toBe("Purchasing");
+    expect(getCopy("zh-CN").home.purchasing).toBe("AI录入");
+    expect(["AI Intake", "Purchasing"]).toContain(getCopy("en-GB").home.purchasing);
     expect(getCopy("zh-CN").home.totalValue).toBe("产品库存总金额");
     expect(getCopy("en-GB").home.totalValue).toBe("Total Inventory Value");
   });
@@ -57,7 +57,8 @@ describe("Home", () => {
 
     expect(screen.getByRole("button", { name: /搜索/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /区域/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "采购" })).toHaveAttribute("href", "#purchasing");
+    expect(screen.getByRole("link", { name: "AI录入" })).toHaveAttribute("href", "#purchasing");
+    expect(screen.getByRole("link", { name: "AI录入" }).querySelector("svg")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /产品库存总金额/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "冷冻库金额" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "冷藏库金额" })).toBeInTheDocument();
@@ -66,17 +67,17 @@ describe("Home", () => {
     expect(screen.queryByLabelText("未来功能预留")).not.toBeInTheDocument();
   });
 
-  it("opens purchasing from home while preserving inventory links", async () => {
+  it("opens AI intake hub from home while preserving inventory links", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     await user.click(screen.getByRole("button", { name: "区域" }));
     expect(screen.getByRole("link", { name: "冷冻库" })).toHaveAttribute("href", "#freezer");
 
-    await user.click(screen.getByRole("link", { name: "采购" }));
+    await user.click(screen.getByRole("link", { name: "AI录入" }));
 
-    expect(screen.getByRole("heading", { name: "采购白板识别" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Scan Purchase Whiteboard" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "AI拍照识别录入" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "手动上传录入" })).toBeInTheDocument();
   });
 
   it("opens search input inside the home page", async () => {

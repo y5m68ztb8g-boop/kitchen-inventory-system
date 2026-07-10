@@ -1,4 +1,4 @@
-import { BadgePoundSterling, ClipboardList, MapPinned, Search } from "lucide-react";
+import { BadgePoundSterling, Camera, MapPinned, Search } from "lucide-react";
 import type { ComponentType } from "react";
 
 import type { AppCopy } from "./copy";
@@ -32,7 +32,7 @@ export function getHomeModules(copy: AppCopy, totalValue = "£0.00"): HomeModule
       label: copy.home.purchasing,
       href: "#purchasing",
       ariaLabel: copy.home.purchasing,
-      Icon: ClipboardList
+      Icon: Camera
     },
     {
       id: "valuation",
