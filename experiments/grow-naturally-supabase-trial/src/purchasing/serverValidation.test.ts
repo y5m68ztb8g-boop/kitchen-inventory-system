@@ -34,8 +34,16 @@ async function makeTestImage(format: "jpeg" | "png" | "webp") {
   }
 }
 
-function makePdfFixture() {
-  return Buffer.from("%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n");
+async function makePdfFixture() {
+  return readFile(new URL("./fixtures/valid-test.pdf", import.meta.url));
+}
+
+function makeCorruptPdfFixture() {
+  return Buffer.from("%PDF-1.7\n%%EOF\n");
+}
+
+async function makeHeicFixture() {
+  return readFile(new URL("./fixtures/rainbow-hevc.heic", import.meta.url));
 }
 
 function makeSpreadsheetBuffer(sheetType: "xlsx" | "xls") {
@@ -73,8 +81,8 @@ describe("readMultipartIntakeFile", () => {
   it.each([
     ["image/jpeg", async () => makeTestImage("jpeg")],
     ["image/png", async () => makeTestImage("png")],
-    ["image/heic", async () => makeTestImage("jpeg")],
-    ["image/heif", async () => makeTestImage("jpeg")],
+    ["image/heic", async () => makeHeicFixture()],
+    ["image/heif", async () => makeHeicFixture()],
     ["image/webp", async () => makeTestImage("webp")],
     ["application/pdf", async () => makePdfFixture()],
     ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", async () => makeSpreadsheetBuffer("xlsx")],
@@ -108,6 +116,19 @@ describe("readMultipartIntakeFile", () => {
     await expect(
       readMultipartIntakeFile(intakeUploadRequest(mimeType, Buffer.from("not a valid file")))
     ).rejects.toMatchObject({ code: "UNSUPPORTED_INTAKE_FILE" });
+  });
+
+  it.each(["image/heic", "image/heif"] as const)("rejects JPEG data disguised as %s upload", async (mimeType) => {
+    const jpegBuffer = await makeTestImage("jpeg");
+    await expect(
+      readMultipartIntakeFile(intakeUploadRequest(mimeType, jpegBuffer))
+    ).rejects.toMatchObject({ code: "UNSUPPORTED_INTAKE_FILE" });
+  });
+
+  it("rejects a PDF with only a signature and no valid body", async () => {
+    await expect(readMultipartIntakeFile(intakeUploadRequest("application/pdf", makeCorruptPdfFixture()))).rejects.toMatchObject(
+      { code: "UNSUPPORTED_INTAKE_FILE" }
+    );
   });
 
   it("rejects an empty intake upload", async () => {

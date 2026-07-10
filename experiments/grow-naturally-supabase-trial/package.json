@@ -19,6 +19,7 @@
     "heic-convert": "^2.1.0",
     "lucide-react": "^0.468.0",
     "openai": "^6.45.0",
+    "pdfjs-dist": "^6.1.200",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "sharp": "^0.35.3",

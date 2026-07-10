@@ -1,5 +1,7 @@
 import Busboy from "busboy";
+import convertHeic from "heic-convert";
 import type { IncomingMessage } from "node:http";
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import sharp from "sharp";
 import * as xlsx from "xlsx";
 import { PurchasingApiError } from "./errors";
@@ -98,14 +100,12 @@ export function readMultipartIntakeFile(request: IncomingMessage): Promise<Intak
 
 async function validateIntakeUploadContent(upload: IntakeUpload) {
   if (upload.mimeType.startsWith("image/")) {
-    await validateImage(upload.buffer);
+    await validateImage(upload);
     return;
   }
 
   if (upload.mimeType === "application/pdf") {
-    if (!upload.buffer.subarray(0, 1024).includes(Buffer.from("%PDF-"))) {
-      throw new Error("Invalid PDF signature");
-    }
+    await validatePdf(upload.buffer);
     return;
   }
 
@@ -134,18 +134,51 @@ async function validateIntakeUploadContent(upload: IntakeUpload) {
   validateCsv(upload.buffer);
 }
 
-async function validateImage(buffer: Buffer) {
-  const image = sharp(buffer, { failOn: "error", pages: 1 });
+async function validateImage(upload: IntakeUpload) {
+  const image = sharp(upload.buffer, { failOn: "error", pages: 1 });
   const metadata = await image.metadata();
+  const expectedFormat =
+    upload.mimeType === "image/jpeg"
+      ? "jpeg"
+      : upload.mimeType === "image/png"
+        ? "png"
+        : upload.mimeType === "image/webp"
+          ? "webp"
+          : "heif";
   if (
     !metadata.width ||
     !metadata.height ||
-    !["jpeg", "png", "webp", "heif"].includes(metadata.format ?? "") ||
+    metadata.format !== expectedFormat ||
     (metadata.format === "heif" && metadata.compression === "av1")
   ) {
     throw new Error("Unsupported image content");
   }
+
+  if (metadata.format === "heif") {
+    const decoded = Buffer.from(await convertHeic({ buffer: upload.buffer, format: "JPEG", quality: 1 }));
+    await sharp(decoded, { failOn: "error" }).raw().toBuffer();
+    return;
+  }
+
   await image.raw().toBuffer();
+}
+
+async function validatePdf(buffer: Buffer) {
+  if (!buffer.subarray(0, 1024).includes(Buffer.from("%PDF-"))) {
+    throw new Error("Invalid PDF signature");
+  }
+
+  const loadingTask = getDocument({ data: new Uint8Array(buffer), disableWorker: true });
+  const document = await loadingTask.promise;
+  try {
+    if (document.numPages < 1) {
+      throw new Error("PDF has no pages");
+    }
+    await document.getPage(1);
+  } finally {
+    document.cleanup();
+    await loadingTask.destroy();
+  }
 }
 
 function validateCsv(buffer: Buffer) {
