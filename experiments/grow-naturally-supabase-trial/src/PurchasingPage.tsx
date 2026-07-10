@@ -23,17 +23,16 @@ type PurchasingState =
   | { kind: "saved"; result: WhiteboardConfirmationResponse }
   | { kind: "error"; message: string };
 
-function createClientId(index: number) {
-  return `purchase-row-${Date.now()}-${index}`;
+function reviewItem(
+  item: WhiteboardScanResponse["items"][number],
+  createClientId: () => string
+): WhiteboardReviewItem {
+  return { ...item, clientId: createClientId(), manualReviewed: item.confidence >= 0.8 };
 }
 
-function reviewItem(item: WhiteboardScanResponse["items"][number], index: number): WhiteboardReviewItem {
-  return { ...item, clientId: createClientId(index), manualReviewed: item.confidence >= 0.8 };
-}
-
-function emptyReviewItem(index: number): WhiteboardReviewItem {
+function emptyReviewItem(createClientId: () => string): WhiteboardReviewItem {
   return {
-    clientId: createClientId(index),
+    clientId: createClientId(),
     confidence: 1,
     department: null,
     manualReviewed: true,
@@ -60,6 +59,7 @@ function formatPrice(value: number | null) {
 export function PurchasingPage() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const chooserInputRef = useRef<HTMLInputElement>(null);
+  const clientIdCounter = useRef(0);
   const [state, setState] = useState<PurchasingState>({ kind: "idle" });
   const [showOriginalImage, setShowOriginalImage] = useState(false);
   const previewUrl = state.kind === "preview" || state.kind === "recognising" ? state.previewUrl : null;
@@ -77,6 +77,15 @@ export function PurchasingPage() {
     () => Boolean(review?.items.some((item) => item.confidence < 0.8 && !item.manualReviewed)),
     [review]
   );
+
+  function createClientId() {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+
+    clientIdCounter.current += 1;
+    return `purchase-row-${clientIdCounter.current}`;
+  }
 
   function selectFile(file: File | undefined) {
     if (!file) {
@@ -99,7 +108,7 @@ export function PurchasingPage() {
       setState({
         generalNotes: response.generalNotes,
         imageUrl: response.imageUrl,
-        items: response.items.map(reviewItem),
+        items: response.items.map((item) => reviewItem(item, createClientId)),
         kind: "review",
         scanId: response.scanId,
         unreadableText: response.unreadableText
@@ -130,7 +139,7 @@ export function PurchasingPage() {
       return;
     }
 
-    setState({ ...state, items: [...state.items, emptyReviewItem(state.items.length)] });
+    setState({ ...state, items: [...state.items, emptyReviewItem(createClientId)] });
   }
 
   async function confirm() {
@@ -304,6 +313,7 @@ function SavedResults({ result }: { result: WhiteboardConfirmationResponse }) {
             <dl className="purchase-recommendation-fields">
               <div><dt>推荐历史产品</dt><dd>{item.recommendation.recommendedProductName ?? "-"}</dd></div>
               <div><dt>供应商</dt><dd>{item.recommendation.recommendedSupplierName ?? "-"}</dd></div>
+              <div><dt>供应商编码</dt><dd>{item.recommendation.recommendedSupplierCode ?? "-"}</dd></div>
               <div><dt>供应商产品代码</dt><dd>{item.recommendation.recommendedProductCode ?? "-"}</dd></div>
               <div><dt>包装规格</dt><dd>{item.recommendation.recommendedPackSize ?? "-"}</dd></div>
               <div><dt>最近采购价格</dt><dd>{formatPrice(item.recommendation.recommendedLastPrice)}</dd></div>

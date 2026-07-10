@@ -231,6 +231,9 @@ describe("PurchasingPage saved recommendations", () => {
 
     expect(screen.getByText("Chicken Breast")).toBeInTheDocument();
     expect(screen.getByText("Brakes")).toBeInTheDocument();
+    expect(screen.getByText("供应商编码")).toBeInTheDocument();
+    expect(screen.getByText("BRK")).toBeInTheDocument();
+    expect(screen.getByText("供应商产品代码")).toBeInTheDocument();
     expect(screen.getByText("CHICKEN-1")).toBeInTheDocument();
     expect(screen.getByText("2x5kg")).toBeInTheDocument();
     expect(screen.getByText("£24.50")).toBeInTheDocument();
