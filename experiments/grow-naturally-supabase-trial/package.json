@@ -5,27 +5,35 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "test": "vitest run",
+    "build": "tsc -b && vite build",
+    "test": "sh -c 'if [ \"$1\" = \"--\" ]; then shift; fi; if [ \"$#\" -eq 0 ]; then vitest run --exclude src/purchasing/serverValidation.test.ts && pnpm test:server; elif [ \"$1\" = \"src/purchasing/serverValidation.test.ts\" ]; then vitest run --config /dev/null \"$@\"; else vitest run \"$@\"; fi' --",
+    "test:server": "vitest run --config /dev/null src/purchasing/serverValidation.test.ts",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "preview": "vite preview"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^5.4.21",
-    "typescript": "^5.7.2",
+    "better-sqlite3": "^12.11.1",
+    "busboy": "^1.6.0",
+    "lucide-react": "^0.468.0",
+    "openai": "^6.45.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "lucide-react": "^0.468.0"
+    "sharp": "^0.35.3",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.21",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.1",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/busboy": "^1.5.4",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
-    "@playwright/test": "^1.49.1",
     "jsdom": "^25.0.1",
     "vitest": "^2.1.8"
   }
