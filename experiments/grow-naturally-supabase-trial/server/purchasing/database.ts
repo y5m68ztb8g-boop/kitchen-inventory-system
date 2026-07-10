@@ -191,6 +191,13 @@ export function getIntakeSource(database: Database.Database, intakeId: string) {
 function persistIntake(database: Database.Database, input: SaveIntakeInput, status: Extract<PurchaseIntakeStatus, "Draft" | "Pending">) {
   const savedAt = input.createdAt ?? new Date().toISOString();
   const save = database.transaction(() => {
+    const existing = database
+      .prepare("SELECT status FROM purchase_intakes WHERE id = ?")
+      .get(input.id) as { status: PurchaseIntakeStatus } | undefined;
+    if (existing?.status === "ReadyForPurchase") {
+      throw new PurchasingApiError("INVALID_REVIEW_DATA");
+    }
+
     database
       .prepare(
         `INSERT INTO purchase_intakes (

@@ -310,6 +310,55 @@ describe("generic purchase intakes", () => {
     expect(database.prepare("SELECT status FROM purchase_intakes WHERE id = ?").get("intake-1")).toEqual({ status: "Draft" });
   });
 
+  it.each([
+    { name: "Draft", saveIntake: saveDraftIntake },
+    { name: "Pending", saveIntake: savePendingIntake }
+  ])("rejects a stale $name intake save after handoff without mutating the handoff payload", ({ name: saveName, saveIntake }) => {
+    const database = createDatabase();
+    const handoffAt = "2026-07-10T10:00:00.000Z";
+
+    savePendingIntake(
+      database,
+      intakeWith({
+        items: [reviewedItem({ clientId: "pending-row", product_name: "Pending loaf" })]
+      })
+    );
+
+    handOffIntakeToPurchasing(database, {
+      handedOffAt: handoffAt,
+      intakeId: "intake-1",
+      items: [reviewedItem({ clientId: "handoff-row", product_name: "Rolled oats" })]
+    });
+
+    expect(database.prepare("SELECT status, handed_off_at FROM purchase_intakes WHERE id = ?").get("intake-1")).toEqual({
+      handed_off_at: handoffAt,
+      status: "ReadyForPurchase"
+    });
+    expect(database.prepare("SELECT id, product_name FROM purchase_intake_items WHERE intake_id = ? ORDER BY row_order").all("intake-1")).toEqual(
+      [{ id: "intake-1:handoff-row", product_name: "Rolled oats" }]
+    );
+
+    expect(() =>
+      saveIntake(
+        database,
+        intakeWith({
+          createdAt: "2026-07-10T09:00:00.000Z",
+          generalNotes: `stale ${saveName} intake`,
+          id: "intake-1",
+          items: [reviewedItem({ clientId: "stale-row", product_name: "Stale oats" })]
+        })
+      )
+    ).toThrowError(expect.objectContaining({ code: "INVALID_REVIEW_DATA" }));
+
+    expect(database.prepare("SELECT status, handed_off_at FROM purchase_intakes WHERE id = ?").get("intake-1")).toEqual({
+      handed_off_at: handoffAt,
+      status: "ReadyForPurchase"
+    });
+    expect(database.prepare("SELECT id, product_name FROM purchase_intake_items WHERE intake_id = ? ORDER BY row_order").all("intake-1")).toEqual(
+      [{ id: "intake-1:handoff-row", product_name: "Rolled oats" }]
+    );
+  });
+
   it("does not change status or rows when handoff validation fails", () => {
     const database = createDatabase();
     saveDraftIntake(database, intakeWith({ sourceType: "image" }));
