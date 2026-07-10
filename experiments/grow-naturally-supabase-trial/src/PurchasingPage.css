@@ -1,0 +1,251 @@
+.purchasing-page-shell {
+  box-sizing: border-box;
+  margin: 0 auto;
+  max-width: 1100px;
+  padding: 24px 16px 48px;
+}
+
+.purchasing-page-panel {
+  background: #fff;
+  border: 1px solid #d9dfd4;
+  padding: 24px;
+}
+
+.purchasing-page-eyebrow {
+  color: #61715b;
+  margin: 0 0 4px;
+}
+
+.purchasing-page-panel h1,
+.purchasing-page-panel h2,
+.purchasing-page-panel p {
+  overflow-wrap: anywhere;
+}
+
+.purchasing-page-panel h1 {
+  margin: 0 0 20px;
+}
+
+.purchasing-file-input {
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  position: absolute;
+  width: 1px;
+}
+
+.purchasing-primary-action,
+.purchasing-preview-actions button,
+.purchase-review-actions button,
+.purchase-review-row button,
+.purchase-review-heading button,
+.purchase-image-dialog button,
+.purchase-error button {
+  min-height: 44px;
+}
+
+.purchasing-preview-state {
+  display: grid;
+  gap: 16px;
+}
+
+.purchasing-preview-image {
+  border: 1px solid #d9dfd4;
+  max-height: 460px;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.purchasing-preview-actions,
+.purchase-review-actions,
+.purchase-review-heading,
+.purchase-saved-row-heading,
+.purchase-image-dialog-heading {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.purchase-review,
+.purchase-saved {
+  margin-top: 24px;
+}
+
+.purchase-review-heading h2,
+.purchase-saved h2 {
+  margin: 0;
+}
+
+.purchase-review-heading p,
+.purchase-review-note {
+  color: #586158;
+  margin: 6px 0 0;
+}
+
+.purchase-review-table {
+  margin-top: 16px;
+}
+
+.purchase-review-row {
+  align-items: end;
+  border-bottom: 1px solid #d9dfd4;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(92px, 0.75fr) minmax(150px, 1.3fr) minmax(80px, 0.5fr) minmax(82px, 0.55fr) minmax(130px, 1fr) minmax(130px, 0.8fr) 58px;
+  padding: 12px 0;
+}
+
+.purchase-review-row-low-confidence {
+  background: #fff5d9;
+  box-shadow: inset 3px 0 #c87800;
+  padding-left: 10px;
+}
+
+.purchase-review-row label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.purchase-review-row label > span {
+  color: #526052;
+  font-size: 13px;
+}
+
+.purchase-review-row input:not([type="checkbox"]) {
+  box-sizing: border-box;
+  min-height: 40px;
+  min-width: 0;
+  width: 100%;
+}
+
+.purchase-review-check {
+  align-items: center;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.purchase-review-check input {
+  block-size: 20px;
+  inline-size: 20px;
+}
+
+.purchase-review-actions {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.purchase-image-dialog-backdrop {
+  align-items: center;
+  background: rgb(21 31 20 / 55%);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 16px;
+  position: fixed;
+  z-index: 10;
+}
+
+.purchase-image-dialog {
+  background: #fff;
+  max-height: calc(100vh - 32px);
+  max-width: 900px;
+  overflow: auto;
+  padding: 16px;
+  width: min(100%, 900px);
+}
+
+.purchase-image-dialog h2 {
+  margin: 0;
+}
+
+.purchase-image-dialog img {
+  display: block;
+  margin-top: 16px;
+  max-height: calc(100vh - 140px);
+  max-width: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+
+.purchase-error {
+  background: #fff0ed;
+  border-left: 3px solid #b32a1d;
+  margin-top: 20px;
+  padding: 12px;
+}
+
+.purchase-error p {
+  margin-top: 0;
+}
+
+.purchase-saved-row {
+  border-bottom: 1px solid #d9dfd4;
+  padding: 16px 0;
+}
+
+.purchase-saved-row-heading span {
+  background: #e9f1e6;
+  color: #314d2c;
+  padding: 4px 8px;
+}
+
+.purchase-recommendation-fields {
+  display: grid;
+  gap: 10px 18px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 14px 0 0;
+}
+
+.purchase-recommendation-fields div {
+  min-width: 0;
+}
+
+.purchase-recommendation-fields dt {
+  color: #526052;
+  font-size: 13px;
+}
+
+.purchase-recommendation-fields dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .purchasing-page-shell {
+    padding: 16px 12px 32px;
+  }
+
+  .purchasing-page-panel {
+    padding: 16px;
+  }
+
+  .purchase-review-row {
+    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .purchase-review-row button {
+    justify-self: start;
+  }
+
+  .purchase-review-actions {
+    justify-content: stretch;
+  }
+
+  .purchase-review-actions button {
+    flex: 1 1 140px;
+  }
+
+  .purchase-recommendation-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 390px) {
+  .purchasing-preview-actions button,
+  .purchase-review-heading button {
+    width: 100%;
+  }
+}

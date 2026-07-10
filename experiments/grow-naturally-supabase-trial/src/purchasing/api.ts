@@ -1,0 +1,80 @@
+import type { WhiteboardRecognitionItem, WhiteboardReviewItem } from "./types";
+
+export type WhiteboardScanResponse = {
+  generalNotes: string | null;
+  imageUrl: string;
+  items: WhiteboardRecognitionItem[];
+  scanId: string;
+  unreadableText: string[];
+};
+
+export type HistoricalRecommendation = {
+  currentInventoryQuantity: number | null;
+  recommendedLastPrice: number | null;
+  recommendedLastPurchaseDate: string | null;
+  recommendedPackSize: string | null;
+  recommendedProductCode: string | null;
+  recommendedProductName: string | null;
+  recommendedPurchaseCount: number | null;
+  recommendedSupplierCode: string | null;
+  recommendedSupplierName: string | null;
+  recommendedSupplierProductId: string | null;
+};
+
+export type WhiteboardConfirmationResponse = {
+  items: Array<{
+    clientId: string;
+    productName: string;
+    recommendation: HistoricalRecommendation | null;
+  }>;
+  scanId: string;
+  status: "Pending";
+};
+
+const chineseErrorMessages: Record<string, string> = {
+  AI_SERVICE_UNAVAILABLE: "识别服务暂时不可用，请稍后重试。",
+  IMAGE_TOO_LARGE: "图片不能超过 15 MB。",
+  INVALID_REVIEW_DATA: "请检查采购项目后再保存。",
+  MISSING_API_KEY: "服务器尚未配置 AI 识别密钥。",
+  NOT_FOUND: "未找到采购扫描记录。",
+  UNSUPPORTED_IMAGE_FORMAT: "请上传 JPG、PNG、HEIC、HEIF 或 WebP 图片。"
+};
+
+export async function scanWhiteboard(file: File): Promise<WhiteboardScanResponse> {
+  const body = new FormData();
+  body.append("image", file);
+
+  return readPurchasingResponse<WhiteboardScanResponse>("/api/purchasing/scan-whiteboard", {
+    body,
+    method: "POST"
+  });
+}
+
+export async function confirmWhiteboardScan(
+  scanId: string,
+  items: WhiteboardReviewItem[]
+): Promise<WhiteboardConfirmationResponse> {
+  return readPurchasingResponse<WhiteboardConfirmationResponse>(
+    `/api/purchasing/whiteboard-scans/${encodeURIComponent(scanId)}/confirm`,
+    {
+      body: JSON.stringify({ items }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    }
+  );
+}
+
+async function readPurchasingResponse<T>(url: string, options: RequestInit): Promise<T> {
+  const response = await fetch(url, options);
+  const payload = (await response.json().catch(() => null)) as { error?: { code?: string } } | T | null;
+
+  if (!response.ok) {
+    const code =
+      payload && typeof payload === "object" && "error" in payload && payload.error && typeof payload.error.code === "string"
+        ? payload.error.code
+        : "";
+    throw new Error(chineseErrorMessages[code] ?? "请求失败，请稍后重试。");
+  }
+
+  return payload as T;
+}
