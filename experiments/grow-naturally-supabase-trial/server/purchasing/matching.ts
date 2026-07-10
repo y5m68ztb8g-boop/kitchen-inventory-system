@@ -44,6 +44,68 @@ const tokenAliases = new Map([
   ["soda", "softdrink"]
 ]);
 
+const MARK_MURPHY = "Mark Murphy (Dole Ltd)";
+const CAMPBELLS = "Campbells Prime Meat Ltd";
+const BRAKES = "Brakes / Sysco GB Ltd";
+
+const dairyTerms = new Set([
+  "egg",
+  "milk",
+  "cream",
+  "butter",
+  "cheese",
+  "yogurt",
+  "yoghurt",
+  "dairy",
+  "buttermilk",
+  "cheddar",
+  "mozzarella",
+  "parmesan",
+  "mascarpone",
+  "brie",
+  "feta",
+  "halloumi"
+]);
+
+const seafoodTerms = new Set([
+  "seafood",
+  "fish",
+  "haddock",
+  "cod",
+  "salmon",
+  "seabass",
+  "pollock",
+  "plaice",
+  "halibut",
+  "tuna",
+  "mackerel",
+  "trout",
+  "sole",
+  "prawn",
+  "shrimp",
+  "scampi",
+  "crab",
+  "lobster",
+  "mussel",
+  "clam",
+  "scallop",
+  "squid",
+  "calamari",
+  "octopus"
+]);
+
+type SemanticMatch = {
+  score: number;
+  tier: number;
+};
+
+export function preferredSupplierForProduct(productName: string) {
+  const tokens = new Set(normaliseProductName(productName).split(" ").filter(Boolean));
+  if (Array.from(tokens).some((token) => dairyTerms.has(token))) return MARK_MURPHY;
+  if (Array.from(tokens).some((token) => seafoodTerms.has(token))) return CAMPBELLS;
+  return BRAKES;
+}
+
 export function normaliseProductName(value: string) {
   const plain = value
     .normalize("NFKD")
@@ -73,9 +135,9 @@ export function rankHistoricalProducts(input: HistoricalMatchInput): RankedHisto
   const semanticCandidates = input.candidates
     .map((candidate) => ({
       candidate,
-      semanticScore: scoreSemanticName(requestedName, normaliseProductName(candidate.productName))
+      semantic: scoreSemanticName(requestedName, normaliseProductName(candidate.productName))
     }))
-    .filter((entry) => entry.semanticScore >= 35);
+    .filter((entry) => entry.semantic.score >= 35);
 
   if (semanticCandidates.length === 0) {
     return [];
@@ -84,10 +146,19 @@ export function rankHistoricalProducts(input: HistoricalMatchInput): RankedHisto
   const newestPurchaseTime = Math.max(
     ...semanticCandidates.map(({ candidate }) => parseDate(candidate.latestPurchaseDate))
   );
+  const preferredSupplier = preferredSupplierForProduct(input.productName);
+  const hasPreferredSupplier = semanticCandidates.some(
+    ({ candidate }) => candidate.supplierName === preferredSupplier
+  );
+  const effectivePreferredSupplier = hasPreferredSupplier ? preferredSupplier : BRAKES;
   const ranked = semanticCandidates
-    .map(({ candidate, semanticScore }) => ({
+    .map(({ candidate, semantic }) => ({
       ...candidate,
-      currentInventoryQuantity: currentInventoryQuantity(candidate, input.inventoryEntries),
+      currentInventoryQuantity: currentInventoryQuantity(
+        candidate,
+        input.inventoryEntries,
+        semanticCandidates.map(({ candidate: semanticCandidate }) => semanticCandidate.id)
+      ),
       recommendedLastPrice: candidate.latestPrice,
       recommendedLastPurchaseDate: candidate.latestPurchaseDate,
       recommendedPackSize: candidate.packSize,
@@ -98,21 +169,25 @@ export function rankHistoricalProducts(input: HistoricalMatchInput): RankedHisto
       recommendedSupplierName: candidate.supplierName,
       recommendedSupplierProductId: candidate.id,
       score:
-        semanticScore +
+        semantic.score +
         frequencyBonus(candidate.purchaseCount) +
         recencyBonus(candidate.latestPurchaseDate, newestPurchaseTime),
-      semanticScore
+      semanticScore: semantic.score,
+      matchTier: semantic.tier,
+      preferredSupplier: candidate.supplierName === effectivePreferredSupplier
     }))
     .sort(
       (left, right) =>
-        right.score - left.score ||
-        right.semanticScore - left.semanticScore ||
+        right.matchTier - left.matchTier ||
+        Number(right.preferredSupplier) - Number(left.preferredSupplier) ||
+        Number(right.currentInventoryQuantity > 0) - Number(left.currentInventoryQuantity > 0) ||
         right.purchaseCount - left.purchaseCount ||
         parseDate(right.latestPurchaseDate) - parseDate(left.latestPurchaseDate) ||
+        right.semanticScore - left.semanticScore ||
         left.id.localeCompare(right.id)
     );
 
-  return ranked.map(({ semanticScore, ...candidate }, index) => ({
+  return ranked.map(({ matchTier, preferredSupplier, semanticScore, ...candidate }, index) => ({
     ...candidate,
     isRecommended: index === 0
   }));
@@ -151,12 +226,12 @@ function singulariseToken(token: string) {
   return token;
 }
 
-function scoreSemanticName(requestedName: string, candidateName: string) {
+function scoreSemanticName(requestedName: string, candidateName: string): SemanticMatch {
   if (!candidateName) {
-    return 0;
+    return { score: 0, tier: 0 };
   }
   if (requestedName === candidateName) {
-    return 100;
+    return { score: 100, tier: 3 };
   }
 
   const requestedTokens = requestedName.split(" ");
@@ -167,10 +242,25 @@ function scoreSemanticName(requestedName: string, candidateName: string) {
     ` ${candidateName} `.includes(` ${requestedName} `);
 
   if (containsPhrase) {
-    return 70 + overlap * 20;
+    return { score: 70 + overlap * 20, tier: 2 };
   }
 
-  return overlap >= 0.5 ? overlap * 60 : 0;
+  if (overlap >= 0.5) {
+    return { score: overlap * 60, tier: 1 };
+  }
+
+  if (shareProductCategory(requestedTokens, candidateTokens)) {
+    return { score: 35, tier: 1 };
+  }
+
+  return { score: 0, tier: 0 };
+}
+
+function shareProductCategory(left: string[], right: string[]) {
+  return (
+    left.some((token) => dairyTerms.has(token)) && right.some((token) => dairyTerms.has(token)) ||
+    left.some((token) => seafoodTerms.has(token)) && right.some((token) => seafoodTerms.has(token))
+  );
 }
 
 function tokenOverlap(left: string[], right: string[]) {
@@ -206,7 +296,11 @@ function parseDate(value: string) {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
-function currentInventoryQuantity(candidate: HistoricalProductCandidate, inventoryEntries: HistoricalInventoryEntry[]) {
+function currentInventoryQuantity(
+  candidate: HistoricalProductCandidate,
+  inventoryEntries: HistoricalInventoryEntry[],
+  candidateIds: string[]
+) {
   const candidateName = normaliseProductName(candidate.productName);
   const idMatches = inventoryEntries.filter((entry) => entry.supplierProduct?.id === candidate.id);
   if (idMatches.length > 0) {
@@ -214,6 +308,15 @@ function currentInventoryQuantity(candidate: HistoricalProductCandidate, invento
       (entry) => !entry.supplierProduct?.id && normaliseProductName(entry.productName) === candidateName
     );
     return sumInventoryQuantity([...idMatches, ...nameOnlyMatches]);
+  }
+
+  const hasKnownCandidateIdMatch = inventoryEntries.some(
+    (entry) => entry.supplierProduct?.id && candidateIds.includes(entry.supplierProduct.id)
+  );
+  if (hasKnownCandidateIdMatch) {
+    return sumInventoryQuantity(
+      inventoryEntries.filter((entry) => !entry.supplierProduct?.id && normaliseProductName(entry.productName) === candidateName)
+    );
   }
 
   return sumInventoryQuantity(

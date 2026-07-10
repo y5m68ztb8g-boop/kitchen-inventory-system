@@ -327,6 +327,181 @@ describe("rankHistoricalProducts", () => {
 
     expect(ranked.map((item) => item.id)).toEqual(["recent-frequent", "old-rare"]);
   });
+
+  it("prefers Mark Murphy for equally matched dairy products", () => {
+    const ranked = rankHistoricalProducts({
+      productName: "whole milk",
+      candidates: [
+        candidate("Whole Milk", "BRK-MILK", {
+          id: "z-brakes",
+          supplierName: "Brakes / Sysco GB Ltd",
+          supplierCode: "BRK"
+        }),
+        candidate("Whole Milk", "MRK-MILK", {
+          id: "a-mark",
+          supplierName: "Mark Murphy (Dole Ltd)",
+          supplierCode: "MRK"
+        })
+      ],
+      inventoryEntries: []
+    });
+
+    expect(ranked[0]?.supplierName).toBe("Mark Murphy (Dole Ltd)");
+  });
+
+  it("prefers Campbells for seafood queries in broad match", () => {
+    const ranked = rankHistoricalProducts({
+      productName: "haddock",
+      candidates: [
+        candidate("Prawns 1kg", "PRW-1", {
+          id: "z-brakes",
+          supplierName: "Brakes / Sysco GB Ltd",
+          supplierCode: "BRK"
+        }),
+        candidate("Prawns 1kg", "CMP-PRW-1", {
+          id: "a-campbells",
+          supplierName: "Campbells Prime Meat Ltd",
+          supplierCode: "CMP"
+        })
+      ],
+      inventoryEntries: []
+    });
+
+    expect(ranked[0]?.supplierName).toBe("Campbells Prime Meat Ltd");
+  });
+
+  it("defaults to Brakes when no preferred supplier category matches", () => {
+    const ranked = rankHistoricalProducts({
+      productName: "garam masala",
+      candidates: [
+        candidate("Garam Masala", "CMP-1", {
+          id: "z-campbells",
+          supplierName: "Campbells Prime Meat Ltd",
+          supplierCode: "CMP"
+        }),
+        candidate("Garam Masala", "BRK-1", {
+          id: "a-brakes",
+          supplierName: "Brakes / Sysco GB Ltd",
+          supplierCode: "BRK"
+        })
+      ],
+      inventoryEntries: []
+    });
+
+    expect(ranked[0]?.supplierName).toBe("Brakes / Sysco GB Ltd");
+  });
+
+  it("falls back to default behavior when preferred dairy supplier is absent", () => {
+    const ranked = rankHistoricalProducts({
+      productName: "milk",
+      candidates: [
+        candidate("Milk", "BRK-MILK", {
+          id: "z-brakes",
+          supplierName: "Brakes / Sysco GB Ltd",
+          supplierCode: "BRK",
+          purchaseCount: 8
+        }),
+        candidate("Milk", "CMP-MILK", {
+          id: "a-campbells",
+          supplierName: "Campbells Prime Meat Ltd",
+          supplierCode: "CMP",
+          purchaseCount: 8
+        })
+      ],
+      inventoryEntries: []
+    });
+
+    expect(ranked[0]?.supplierName).toBe("Brakes / Sysco GB Ltd");
+  });
+
+  it("prefers positive stock before zero stock for equally relevant candidates", () => {
+    const ranked = rankHistoricalProducts({
+      productName: "apple juice",
+      candidates: [
+        candidate("Apple Juice", "IN-STOCK", {
+          id: "z-stocked",
+          supplierName: "Brakes / Sysco GB Ltd",
+          supplierCode: "BRK",
+          purchaseCount: 12
+        }),
+        candidate("Apple Juice", "OUT-STOCK", {
+          id: "a-empty",
+          supplierName: "Brakes / Sysco GB Ltd",
+          supplierCode: "BRK",
+          purchaseCount: 12
+        })
+      ],
+      inventoryEntries: [
+        { productName: "Apple Juice", quantity: 4, supplierProduct: { id: "z-stocked" } }
+      ]
+    });
+
+    expect(ranked[0]?.id).toBe("z-stocked");
+  });
+
+  it("keeps a below-threshold candidate out even if it has stock history", () => {
+    const ranked = rankHistoricalProducts({
+      productName: "orange juice",
+      candidates: [
+        candidate("Washing Up Liquid", "SOAP-LOW", {
+          id: "z-soap",
+          supplierName: "Brakes / Sysco GB Ltd",
+          supplierCode: "BRK"
+        })
+      ],
+      inventoryEntries: [{ productName: "Washing Up Liquid", quantity: 9, supplierProduct: { id: "z-soap" } }]
+    });
+
+    expect(ranked).toEqual([]);
+  });
+
+  it("recommends the frequently purchased stocked Campbells haddock for a broad query", () => {
+    const porticoHaddock = candidate("Portico Haddock", "CMP-28HADFZ");
+    const smokedCampbellsHaddock = candidate("Smoked Haddock", "CMP-28HADFZIQ", {
+      supplierName: "Campbells Prime Meat Ltd",
+      supplierCode: "CMP",
+      purchaseCount: 1
+    });
+    const frequentCampbellsHaddock = candidate("Haddock 8-10oz", "CMP-28HADFZIQF", {
+      supplierName: "Campbells Prime Meat Ltd",
+      supplierCode: "CMP",
+      purchaseCount: 30
+    });
+
+    const ranked = rankHistoricalProducts({
+      productName: "haddock",
+      candidates: [porticoHaddock, smokedCampbellsHaddock, frequentCampbellsHaddock],
+      inventoryEntries: [
+        { productName: "Smoked Haddock", quantity: 3, supplierProduct: { id: smokedCampbellsHaddock.id } },
+        { productName: "Haddock 8-10oz", quantity: 2, supplierProduct: { id: frequentCampbellsHaddock.id } }
+      ]
+    });
+
+    expect(ranked[0]?.supplierProductCode).toBe("CMP-28HADFZIQF");
+  });
+
+  it("keeps a higher match tier ahead of a preferred supplier", () => {
+    const exactSmokedBrakesProduct = candidate("Smoked Haddock", "BRK-SMOKED", {
+      id: "z-exact",
+      supplierName: "Brakes / Sysco GB Ltd",
+      supplierCode: "BRK",
+      purchaseCount: 1
+    });
+    const genericCampbellsHaddock = candidate("Haddock", "CMP-GENERIC", {
+      id: "a-generic",
+      supplierName: "Campbells Prime Meat Ltd",
+      supplierCode: "CMP",
+      purchaseCount: 99
+    });
+
+    const ranked = rankHistoricalProducts({
+      productName: "smoked haddock",
+      candidates: [exactSmokedBrakesProduct, genericCampbellsHaddock],
+      inventoryEntries: []
+    });
+
+    expect(ranked[0]?.id).toBe("z-exact");
+  });
 });
 
 describe("buildCurrentInventoryEntries", () => {
