@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Clipboard, ExternalLink, Package, Snowflake, Thermometer, Wine } from "lucide-react";
+import { Clipboard, ExternalLink, Package, Snowflake, Thermometer, Wine, X } from "lucide-react";
 
 import { getCopy } from "./copy";
 import { describeDryStoreLocation } from "./DryStorePage";
@@ -39,6 +39,12 @@ const freezerMiniAreas = [
 ];
 
 type SearchMode = "inventory" | "invoice";
+
+const mobileSearchMediaQuery = "(max-width: 560px)";
+
+function getMobileSearchMediaQueryList() {
+  return typeof window.matchMedia === "function" ? window.matchMedia(mobileSearchMediaQuery) : null;
+}
 
 function ModuleContent({ module }: { module: HomeModule }) {
   const Icon = module.Icon;
@@ -228,10 +234,17 @@ export function Home() {
   const [searchMode, setSearchMode] = useState<SearchMode>("inventory");
   const [copiedSupplierCode, setCopiedSupplierCode] = useState("");
   const [searchResultsDismissed, setSearchResultsDismissed] = useState(false);
+  const [isMobileSearchViewport, setIsMobileSearchViewport] = useState(() =>
+    getMobileSearchMediaQueryList()?.matches ?? false
+  );
   const areaMenuRef = useRef<HTMLDivElement>(null);
   const searchModuleRef = useRef<HTMLDivElement>(null);
+  const searchTriggerRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchResultsRef = useRef<HTMLElement>(null);
+  const isMountedRef = useRef(true);
+  const searchOpenRef = useRef(false);
+  const ownsSearchHistoryEntryRef = useRef(false);
   const matchedSourceIds = new Set(
     freezerInventoryEntries.flatMap((entry) => (entry.sourceItemId ? [entry.sourceItemId] : []))
   );
@@ -254,6 +267,108 @@ export function Home() {
   const invoiceSearchResults = searchSupplierProducts(invoiceSearchQuery, 8);
   const activeSearchQuery = searchMode === "invoice" ? invoiceSearchQuery : searchQuery;
   const showSearchResults = searchOpen && Boolean(activeSearchQuery.trim()) && !searchResultsDismissed;
+
+  function resetSearch() {
+    setSearchOpen(false);
+    setSearchQuery("");
+    setInvoiceSearchQuery("");
+    setSearchMode("inventory");
+    setSearchResultsDismissed(false);
+    setCopiedSupplierCode("");
+  }
+
+  function returnFocusToSearchTrigger() {
+    queueMicrotask(() => {
+      if (isMountedRef.current) {
+        searchTriggerRef.current?.focus();
+      }
+    });
+  }
+
+  function openSearch() {
+    if (isMobileSearchViewport) {
+      window.history.pushState({ ...window.history.state, homeSearchOpen: true }, "", window.location.href);
+      ownsSearchHistoryEntryRef.current = true;
+    }
+
+    searchOpenRef.current = true;
+    setSearchOpen(true);
+  }
+
+  function closeSearch() {
+    const shouldReturnToPreviousEntry = ownsSearchHistoryEntryRef.current;
+
+    searchOpenRef.current = false;
+    ownsSearchHistoryEntryRef.current = false;
+    resetSearch();
+    returnFocusToSearchTrigger();
+
+    if (shouldReturnToPreviousEntry) {
+      window.history.back();
+    }
+  }
+
+  useEffect(() => {
+    const mediaQuery = getMobileSearchMediaQueryList();
+
+    if (!mediaQuery) {
+      return;
+    }
+
+    const updateMobileSearchViewport = () => setIsMobileSearchViewport(mediaQuery.matches);
+
+    updateMobileSearchViewport();
+    mediaQuery.addEventListener("change", updateMobileSearchViewport);
+
+    return () => {
+      mediaQuery.removeEventListener("change", updateMobileSearchViewport);
+    };
+  }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    function closeSearchOnPopState() {
+      if (!searchOpenRef.current) {
+        return;
+      }
+
+      searchOpenRef.current = false;
+      ownsSearchHistoryEntryRef.current = false;
+      resetSearch();
+      returnFocusToSearchTrigger();
+    }
+
+    window.addEventListener("popstate", closeSearchOnPopState);
+
+    return () => {
+      window.removeEventListener("popstate", closeSearchOnPopState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isMobileSearchViewport || !searchOpen) {
+      return;
+    }
+
+    function closeSearchOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeSearch();
+      }
+    }
+
+    window.addEventListener("keydown", closeSearchOnEscape);
+
+    return () => {
+      window.removeEventListener("keydown", closeSearchOnEscape);
+    };
+  }, [isMobileSearchViewport, searchOpen]);
 
   useEffect(() => {
     if (!shouldSyncInventoryDatabaseFromServer()) {
@@ -338,7 +453,7 @@ export function Home() {
   }, [showSearchResults]);
 
   return (
-    <main className="home-shell" aria-label={copy.home.ariaLabel}>
+    <main className={searchOpen ? "home-shell home-shell-search-open" : "home-shell"} aria-label={copy.home.ariaLabel}>
       <section className="home-grid" aria-label={copy.home.moduleGroupLabel}>
         {modules.map((module) => {
           if (module.id === "search") {
@@ -352,6 +467,20 @@ export function Home() {
                 <span className="module-icon" aria-hidden="true">
                   {module.Icon ? <module.Icon size={30} strokeWidth={1.8} /> : null}
                 </span>
+                {isMobileSearchViewport ? (
+                  <div className="mobile-search-header">
+                    <h1 className="mobile-search-title">搜索</h1>
+                    <button
+                      aria-label="关闭搜索"
+                      className="mobile-search-close"
+                      onClick={closeSearch}
+                      title="关闭"
+                      type="button"
+                    >
+                      <X aria-hidden="true" size={20} strokeWidth={2} />
+                    </button>
+                  </div>
+                ) : null}
                 <div className="home-search-fields">
                   <label className="home-search-label" htmlFor="home-invoice-search">
                     历史采购 / Invoice / Code
@@ -396,7 +525,8 @@ export function Home() {
               <button
                 className={`home-module home-module-${module.id}`}
                 key={module.id}
-                onClick={() => setSearchOpen(true)}
+                onClick={openSearch}
+                ref={searchTriggerRef}
                 type="button"
                 aria-label={module.ariaLabel}
               >

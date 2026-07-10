@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import { Home } from "./Home";
@@ -37,10 +37,48 @@ function lineTotalFor(quantityText: string, supplierProduct: SupplierProduct) {
 }
 
 describe("Home", () => {
+  const MOBILE_SEARCH_MEDIA_QUERY = "(max-width: 560px)";
+  let restoreMatchMedia: (() => void) | null = null;
+
+  function mockMatchMedia(matches: boolean) {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn((query: string) => ({
+      matches: query === MOBILE_SEARCH_MEDIA_QUERY && matches,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(() => true)
+    }) as MediaQueryList);
+
+    restoreMatchMedia = () => {
+      window.matchMedia = originalMatchMedia;
+    };
+  }
+
+  function dispatchPopStateWithSearchState(state: Record<string, unknown>) {
+    const popStateEvent = new Event("popstate") as PopStateEvent;
+    Object.defineProperty(popStateEvent, "state", {
+      value: state,
+      configurable: true
+    });
+    window.dispatchEvent(popStateEvent);
+  }
+
   beforeEach(() => {
     vi.restoreAllMocks();
     window.location.hash = "";
     window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    if (restoreMatchMedia) {
+      restoreMatchMedia();
+      restoreMatchMedia = null;
+    }
+    vi.restoreAllMocks();
   });
 
   it("keeps Chinese and English copy available for future switching", () => {
@@ -89,6 +127,115 @@ describe("Home", () => {
     expect(screen.getByPlaceholderText("搜索发票商品 / code")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("输入产品名称")).toBeInTheDocument();
     expect(window.location.hash).toBe("");
+  });
+
+  it("keeps mobile search open when the current query is cleared", async () => {
+    const user = userEvent.setup();
+    mockMatchMedia(true);
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "搜索" }));
+    const productQueryInput = screen.getByPlaceholderText("输入产品名称");
+    await user.type(productQueryInput, "Chicken Breast");
+    await user.clear(productQueryInput);
+
+    expect(screen.getByRole("button", { name: "关闭搜索" })).toBeVisible();
+  });
+
+  it("clears both searches after closing and reopening", async () => {
+    const user = userEvent.setup();
+    mockMatchMedia(true);
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "搜索" }));
+    await user.type(screen.getByPlaceholderText("搜索发票商品 / code"), "milk");
+    await user.type(screen.getByPlaceholderText("输入产品名称"), "chicken");
+    await user.click(screen.getByRole("button", { name: "关闭搜索" }));
+    await user.click(screen.getByRole("button", { name: "搜索" }));
+
+    expect(screen.getByPlaceholderText("搜索发票商品 / code")).toHaveValue("");
+    expect(screen.getByPlaceholderText("输入产品名称")).toHaveValue("");
+  });
+
+  it("closes mobile search on Escape", async () => {
+    const user = userEvent.setup();
+    mockMatchMedia(true);
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "搜索" }));
+    await user.type(screen.getByPlaceholderText("输入产品名称"), "chicken");
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("button", { name: "关闭搜索" })).not.toBeInTheDocument();
+    const searchButton = screen.getByRole("button", { name: "搜索" });
+    expect(searchButton).toBeInTheDocument();
+    expect(searchButton).toHaveFocus();
+
+    await user.click(searchButton);
+
+    expect(screen.getByPlaceholderText("搜索发票商品 / code")).toHaveValue("");
+    expect(screen.getByPlaceholderText("输入产品名称")).toHaveValue("");
+  });
+
+  it("closes mobile search when a popstate event is received", async () => {
+    const user = userEvent.setup();
+    mockMatchMedia(true);
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "搜索" }));
+    await user.type(screen.getByPlaceholderText("搜索发票商品 / code"), "F135-177");
+    await user.type(screen.getByPlaceholderText("输入产品名称"), "chicken");
+
+    act(() => {
+      dispatchPopStateWithSearchState({ homeSearchOpen: true });
+    });
+
+    expect(screen.queryByRole("button", { name: "关闭搜索" })).not.toBeInTheDocument();
+    const searchButton = screen.getByRole("button", { name: "搜索" });
+    expect(searchButton).toBeInTheDocument();
+
+    await user.click(searchButton);
+
+    expect(screen.getByPlaceholderText("搜索发票商品 / code")).toHaveValue("");
+    expect(screen.getByPlaceholderText("输入产品名称")).toHaveValue("");
+  });
+
+  it("returns focus to search trigger after mobile close", async () => {
+    const user = userEvent.setup();
+    mockMatchMedia(true);
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "搜索" }));
+    await user.click(screen.getByRole("button", { name: "关闭搜索" }));
+
+    expect(screen.getByRole("button", { name: "搜索" })).toHaveFocus();
+  });
+
+  it("pushes one history entry per mobile search open", async () => {
+    const user = userEvent.setup();
+    mockMatchMedia(true);
+    const pushState = vi.spyOn(window.history, "pushState");
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "搜索" }));
+    expect(pushState).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "关闭搜索" }));
+    await user.click(screen.getByRole("button", { name: "搜索" }));
+
+    expect(pushState).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not show a close control or push history on desktop", async () => {
+    const user = userEvent.setup();
+    mockMatchMedia(false);
+    const pushState = vi.spyOn(window.history, "pushState");
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "搜索" }));
+
+    expect(screen.queryByRole("button", { name: "关闭搜索" })).not.toBeInTheDocument();
+    expect(pushState).not.toHaveBeenCalled();
   });
 
   it("searches invoice history and supplier code from the upper search field", async () => {
