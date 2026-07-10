@@ -153,7 +153,7 @@ export function confirmWhiteboardScan(database: Database.Database, input: Confir
 
     input.items.forEach((item, rowOrder) => {
       insertItem.run(
-        item.clientId,
+        `${input.scanId}:${item.clientId}`,
         input.scanId,
         rowOrder,
         item.department,
@@ -191,12 +191,14 @@ function validateReviewItems(items: ConfirmedWhiteboardItem[]) {
     throw new PurchasingApiError("INVALID_REVIEW_DATA");
   }
 
+  const clientIds = new Set<string>();
   for (const item of items) {
     const quantityIsValid = item.quantity === null || (Number.isFinite(item.quantity) && item.quantity >= 0);
     const confidenceIsValid =
       Number.isFinite(item.confidence) && item.confidence >= 0 && item.confidence <= 1;
 
     if (
+      clientIds.has(item.clientId) ||
       typeof item.product_name !== "string" ||
       item.product_name.trim().length === 0 ||
       !quantityIsValid ||
@@ -206,5 +208,7 @@ function validateReviewItems(items: ConfirmedWhiteboardItem[]) {
     ) {
       throw new PurchasingApiError("INVALID_REVIEW_DATA");
     }
+
+    clientIds.add(item.clientId);
   }
 }

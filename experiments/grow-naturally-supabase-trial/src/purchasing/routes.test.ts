@@ -341,6 +341,7 @@ describe("purchasing API routes", () => {
     await expect(confirmResponse.json()).resolves.toEqual({
       items: [
         expect.objectContaining({
+          clientId: "client-row",
           productName: "chicken breast",
           recommendation: expect.objectContaining({
             currentInventoryQuantity: 7,
@@ -432,6 +433,42 @@ describe("purchasing API routes", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({ error: { code: "INVALID_REVIEW_DATA" } });
+    expect(database.prepare("SELECT status FROM whiteboard_scans WHERE id = ?").get("scan-test-id")).toEqual({
+      status: "Draft"
+    });
+  });
+
+  it("rejects duplicate client IDs with INVALID_REVIEW_DATA", async () => {
+    const { baseUrl, database } = routeOptions();
+    const upload = uploadBody();
+    await fetch(`${await baseUrl}/api/purchasing/scan-whiteboard`, {
+      body: upload.body,
+      headers: { "Content-Type": upload.contentType },
+      method: "POST"
+    });
+
+    const duplicateClientId = "purchase-row-1";
+    const response = await fetch(
+      `${await baseUrl}/api/purchasing/whiteboard-scans/scan-test-id/confirm`,
+      {
+        body: JSON.stringify({
+          items: [
+            { ...recognisedResponse.items[0], clientId: duplicateClientId, manualReviewed: false },
+            {
+              ...recognisedResponse.items[0],
+              clientId: duplicateClientId,
+              product_name: "milk"
+            }
+          ]
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST"
+      }
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "INVALID_REVIEW_DATA" } });
+    expect(database.prepare("SELECT COUNT(*) AS count FROM whiteboard_scan_items").get()).toEqual({ count: 0 });
     expect(database.prepare("SELECT status FROM whiteboard_scans WHERE id = ?").get("scan-test-id")).toEqual({
       status: "Draft"
     });

@@ -219,7 +219,7 @@ describe("confirmWhiteboardScan", () => {
     ).toEqual([
       {
         current_inventory_quantity: 3,
-        id: "row-1",
+        id: "scan-1:row-1",
         manual_reviewed: 0,
         product_name: "Chicken breast",
         recommended_last_price: 24.5,
@@ -230,7 +230,7 @@ describe("confirmWhiteboardScan", () => {
       },
       {
         current_inventory_quantity: null,
-        id: "row-2",
+        id: "scan-1:row-2",
         manual_reviewed: 1,
         product_name: "Chunky chips",
         recommended_last_price: null,
@@ -318,14 +318,14 @@ describe("confirmWhiteboardScan", () => {
         .all("scan-1")
     ).toEqual([
       {
-        id: "new-row-1",
+        id: "scan-1:new-row-1",
         recommended_product_code: "JUICE-NEW",
         recommended_supplier_product_id: "BRK-JUICE-NEW",
         row_order: 0,
         status: "Pending"
       },
       {
-        id: "new-row-2",
+        id: "scan-1:new-row-2",
         recommended_product_code: "PEAS-NEW",
         recommended_supplier_product_id: "BRK-PEAS-NEW",
         row_order: 1,
@@ -335,6 +335,71 @@ describe("confirmWhiteboardScan", () => {
     expect(database.prepare("SELECT status, confirmed_at FROM whiteboard_scans WHERE id = ?").get("scan-1")).toEqual({
       confirmed_at: "2026-07-10T11:00:00.000Z",
       status: "Pending"
+    });
+  });
+
+  it("scopes persisted IDs by scan so fallback client IDs can recur across scans", () => {
+    const database = createDatabase();
+    saveDraft(database, "scan-1");
+    saveDraft(database, "scan-2");
+    const item = {
+      clientId: "purchase-row-1",
+      confidence: 0.95,
+      department: null,
+      manualReviewed: false,
+      notes: null,
+      product_name: "Bread",
+      quantity: 1,
+      raw_text: "bread",
+      unit: null
+    };
+
+    confirmWhiteboardScan(database, { items: [item], scanId: "scan-1" });
+    confirmWhiteboardScan(database, { items: [item], scanId: "scan-2" });
+
+    expect(database.prepare("SELECT id, scan_id FROM whiteboard_scan_items ORDER BY scan_id").all()).toEqual([
+      { id: "scan-1:purchase-row-1", scan_id: "scan-1" },
+      { id: "scan-2:purchase-row-1", scan_id: "scan-2" }
+    ]);
+  });
+
+  it("rejects duplicate client IDs within one confirmation", () => {
+    const database = createDatabase();
+    saveDraft(database);
+
+    expect(() =>
+      confirmWhiteboardScan(database, {
+        items: [
+          {
+            clientId: "purchase-row-1",
+            confidence: 0.95,
+            department: null,
+            manualReviewed: false,
+            notes: null,
+            product_name: "Bread",
+            quantity: 1,
+            raw_text: "bread",
+            unit: null
+          },
+          {
+            clientId: "purchase-row-1",
+            confidence: 0.95,
+            department: null,
+            manualReviewed: false,
+            notes: null,
+            product_name: "Milk",
+            quantity: 1,
+            raw_text: "milk",
+            unit: null
+          }
+        ],
+        scanId: "scan-1"
+      })
+    ).toThrowError(expect.objectContaining({ code: "INVALID_REVIEW_DATA" }));
+
+    expect(database.prepare("SELECT COUNT(*) AS count FROM whiteboard_scan_items").get()).toEqual({ count: 0 });
+    expect(database.prepare("SELECT status FROM whiteboard_scans WHERE id = ?").get("scan-1")).toEqual({
+      status: "Draft"
     });
   });
 
