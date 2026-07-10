@@ -1,11 +1,13 @@
 // @vitest-environment node
 
 import { Readable } from "node:stream";
+import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import Database from "better-sqlite3";
 import sharp from "sharp";
+import * as xlsx from "xlsx";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createPurchasingDatabase, getScanImage } from "../../server/purchasing/database";
+import { createPurchasingDatabase, getIntakeSource, getScanImage } from "../../server/purchasing/database";
 import { buildCurrentInventoryEntries } from "../../server/purchasing/currentInventory";
 import { MAX_UPLOAD_BYTES, prepareWhiteboardImage } from "../../server/purchasing/imagePreparation";
 import { readMultipartImage } from "../../server/purchasing/multipart";
@@ -115,6 +117,53 @@ describe("recogniseWhiteboard", () => {
         !error.message.includes(testKey)
       );
     });
+  });
+
+  it("accepts a local OpenAI base URL for server-side temporary tests", async () => {
+    const client = createResponsesClient(recognisedResponse);
+    const clientFactory = vi.fn(() => client);
+    const fetch = vi.fn(() => {
+      throw new Error("unexpected network access");
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    try {
+      await expect(
+        recogniseWhiteboard(
+          { buffer: Buffer.from("whiteboard"), mimeType: "image/png" },
+          {
+            apiKey: testKey,
+            model: "gpt-test",
+            baseURL: "http://127.0.0.1:1234/v1",
+            clientFactory
+          }
+        )
+      ).resolves.toEqual(recognisedResponse);
+
+      expect(clientFactory).toHaveBeenCalledWith({
+        apiKey: testKey,
+        baseURL: "http://127.0.0.1:1234/v1"
+      });
+      expect(fetch).not.toHaveBeenCalled();
+
+      expect(client.responses.parse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: "gpt-test",
+          input: [
+            { role: "system", content: WHITEBOARD_SYSTEM_INSTRUCTION },
+            {
+              role: "user",
+              content: [
+                { type: "input_text", text: "Read this hotel purchase whiteboard." },
+                { type: "input_image", image_url: "data:image/png;base64,d2hpdGVib2FyZA==" }
+              ]
+            }
+          ]
+        })
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
@@ -232,7 +281,7 @@ afterEach(async () => {
   );
 });
 
-function routeOptions() {
+function routeOptions(overrides: Partial<PurchasingRouteOptions> = {}) {
   const database = createPurchasingDatabase(":memory:");
   const options: PurchasingRouteOptions = {
     database,
@@ -265,23 +314,60 @@ function routeOptions() {
     recognise: vi.fn().mockResolvedValue(recognisedResponse),
     scanId: () => "scan-test-id"
   };
+  Object.assign(options, overrides);
   const server = createTestServer(options);
   resources.push({ database, server });
   return { baseUrl: startServer(server), database, options };
 }
 
-function uploadBody(image = Buffer.from("image"), mimeType = "image/jpeg") {
+function uploadBody(
+  image = Buffer.from("image"),
+  mimeType = "image/jpeg",
+  fieldName = "image",
+  filename = `${fieldName}.jpg`
+) {
   const boundary = "route-test-boundary";
   return {
     body: Buffer.concat([
       Buffer.from(
-        `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="whiteboard.jpg"\r\nContent-Type: ${mimeType}\r\n\r\n`
+        `--${boundary}\r\nContent-Disposition: form-data; name="${fieldName}"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`
       ),
       image,
       Buffer.from(`\r\n--${boundary}--\r\n`)
     ]),
     contentType: `multipart/form-data; boundary=${boundary}`
   };
+}
+
+function spreadsheetBuffer(sheetType: "xlsx" | "xls", includeLeadingEmptySheet = false) {
+  const workbook = xlsx.utils.book_new();
+  if (includeLeadingEmptySheet) {
+    xlsx.utils.book_append_sheet(workbook, xlsx.utils.aoa_to_sheet([[]]), "Ignored");
+  }
+  const worksheet = xlsx.utils.aoa_to_sheet([
+    ["section", "description", "quantity", "unit", "notes"],
+    ["kitchen", "Orange juice", "", "L", "local stock"]
+  ]);
+  xlsx.utils.book_append_sheet(workbook, worksheet, "Data");
+  return xlsx.write(workbook, { type: "buffer", bookType: sheetType });
+}
+
+type HistoricalCandidatesResponse = {
+  candidates?: Array<Record<string, unknown>> | undefined;
+  items?: Array<Record<string, unknown>> | undefined;
+  query?: string;
+};
+
+function parseHistoricalCandidates(payload: unknown) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  const objectPayload = payload as HistoricalCandidatesResponse;
+  return Array.isArray(objectPayload?.candidates)
+    ? objectPayload.candidates
+    : Array.isArray(objectPayload?.items)
+      ? objectPayload.items
+      : [];
 }
 
 function realSmokeRouteOptions() {
@@ -303,6 +389,297 @@ describe("purchasing API routes", () => {
 
     expect(response.status).toBe(204);
     expect(response.headers.get("x-existing-middleware")).toBe("reached");
+  });
+
+  it("POST /api/purchasing/intakes/parse saves PDF input as a draft intake via server recognition", async () => {
+    const parseSpy = vi.fn().mockResolvedValue({
+      items: [
+        {
+          department: "Bar",
+          raw_text: "5 bottles orange juice",
+          product_name: "Orange juice",
+          quantity: 5,
+          unit: "bottle",
+          notes: "seasonal",
+          confidence: 0.99
+        }
+      ],
+      unreadable_text: [],
+      general_notes: "Friday event"
+    });
+    const { baseUrl, database, options } = routeOptions({ recognise: parseSpy });
+    const pdfFixture = await readFile(new URL("./fixtures/valid-test.pdf", import.meta.url));
+    const upload = uploadBody(pdfFixture, "application/pdf", "file", "weekend-event.pdf");
+
+    const response = await fetch(`${await baseUrl}/api/purchasing/intakes/parse`, {
+      body: upload.body,
+      headers: { "Content-Type": upload.contentType },
+      method: "POST"
+    });
+
+    expect(response.status).toBe(201);
+    const payload = (await response.json()) as {
+      intakeId: string;
+      sourceUrl: string;
+      sourceType: string;
+      originalFilename: string;
+      items: Array<{ product_name: string; quantity: number | null }>;
+      unreadableText: string[];
+      generalNotes: string | null;
+    };
+
+    expect(payload.sourceType).toBe("pdf");
+    expect(payload.originalFilename).toBe("weekend-event.pdf");
+    expect(payload.sourceUrl).toBe(`/api/purchasing/intakes/${payload.intakeId}/source`);
+    expect(payload.items).toEqual([
+      {
+        department: "Bar",
+        raw_text: "5 bottles orange juice",
+        product_name: "Orange juice",
+        quantity: 5,
+        unit: "bottle",
+        notes: "seasonal",
+        confidence: 0.99
+      }
+    ]);
+    expect(payload.unreadableText).toEqual([]);
+    expect(payload.generalNotes).toBe("Friday event");
+
+    expect(options.recognise).toHaveBeenCalledTimes(1);
+    expect(database.prepare("SELECT status, source_type, original_filename FROM purchase_intakes WHERE id = ?").get(payload.intakeId)).toEqual({
+      status: "Draft",
+      source_type: "pdf",
+      original_filename: "weekend-event.pdf"
+    });
+    expect(getIntakeSource(database, payload.intakeId)).not.toBeNull();
+  });
+
+  it.each([
+    ["xlsx", async () => spreadsheetBuffer("xlsx", true)],
+    ["xls", async () => spreadsheetBuffer("xls", true)],
+    [
+      "csv",
+      () => readFile(new URL("./fixtures/parse-spreadsheet-alias.csv", import.meta.url))
+    ]
+  ] as const)("parseSpreadsheet accepts aliases and keeps empty quantity as null for %s", async (_type, makeBuffer) => {
+    const { baseUrl } = routeOptions();
+    const buffer = await makeBuffer();
+    const upload = uploadBody(buffer, _type === "csv" ? "text/csv" : _type === "xlsx" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "application/vnd.ms-excel", "file", "spreadsheet." + _type);
+
+    const response = await fetch(`${await baseUrl}/api/purchasing/intakes/parse`, {
+      body: upload.body,
+      headers: { "Content-Type": upload.contentType },
+      method: "POST"
+    });
+
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(Array.isArray(payload.items)).toBe(true);
+    expect(payload.items[0]).toMatchObject({ product_name: "Orange juice", quantity: null });
+  });
+
+  it("parseSpreadsheet fails with NO_READABLE_TEXT when there is no product header", async () => {
+    const { baseUrl } = routeOptions();
+    const workbook = xlsx.utils.book_new();
+    const worksheet = xlsx.utils.aoa_to_sheet([["sku", "qty"], ["OJO-1", "8"]]);
+    xlsx.utils.book_append_sheet(workbook, worksheet, "Data");
+    const buffer = xlsx.write(workbook, { type: "buffer", bookType: "xlsx" });
+    const upload = uploadBody(buffer, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "file", "no-product-header.xlsx");
+
+    const response = await fetch(`${await baseUrl}/api/purchasing/intakes/parse`, {
+      body: upload.body,
+      headers: { "Content-Type": upload.contentType },
+      method: "POST"
+    });
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "NO_READABLE_TEXT" } });
+  });
+
+  it("supports intake source retrieval and lifecycle updates", async () => {
+    const intakeRecognition = {
+      items: [
+        {
+          department: "Bar",
+          raw_text: "5 bottles orange juice",
+          product_name: "Orange juice",
+          quantity: 5,
+          unit: "bottle",
+          notes: null,
+          confidence: 0.99
+        }
+      ],
+      unreadable_text: [],
+      general_notes: "Friday event"
+    };
+    const { baseUrl, database } = routeOptions({
+      recognise: vi.fn().mockResolvedValue(intakeRecognition)
+    });
+    const parseUpload = uploadBody(await readFile(new URL("./fixtures/valid-test.pdf", import.meta.url)), "application/pdf", "file", "event.pdf");
+    const parseResponse = await fetch(`${await baseUrl}/api/purchasing/intakes/parse`, {
+      body: parseUpload.body,
+      headers: { "Content-Type": parseUpload.contentType },
+      method: "POST"
+    });
+    const parsePayload = (await parseResponse.json()) as { intakeId: string };
+
+    expect(database.prepare("SELECT status FROM purchase_intakes WHERE id = ?").get(parsePayload.intakeId)).toEqual({
+      status: "Draft"
+    });
+
+    const sourceResponse = await fetch(`${await baseUrl}/api/purchasing/intakes/${parsePayload.intakeId}/source`);
+    expect(sourceResponse.status).toBe(200);
+    expect(sourceResponse.headers.get("content-type")).toBe("application/pdf");
+
+    const putResponse = await fetch(`${await baseUrl}/api/purchasing/intakes/${parsePayload.intakeId}`, {
+      body: JSON.stringify({
+        items: [
+          {
+            clientId: "pending-row",
+            confidence: 0.99,
+            department: "Bar",
+            manualReviewed: true,
+            notes: null,
+            product_name: "Orange juice",
+            quantity: 5,
+            raw_text: "5 bottles orange juice",
+            unit: "bottle"
+          }
+        ]
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "PUT"
+    });
+
+    expect(putResponse.status).toBe(200);
+    expect(database.prepare("SELECT status FROM purchase_intakes WHERE id = ?").get(parsePayload.intakeId)).toEqual({
+      status: "Pending"
+    });
+
+    const readyResponse = await fetch(`${await baseUrl}/api/purchasing/intakes/${parsePayload.intakeId}/ready-for-purchase`, {
+      body: JSON.stringify({
+        items: [
+          {
+            clientId: "pending-row",
+            confidence: 0.99,
+            department: "Bar",
+            manualReviewed: true,
+            notes: null,
+            product_name: "Orange juice",
+            quantity: 5,
+            raw_text: "5 bottles orange juice",
+            unit: "bottle"
+          }
+        ]
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    expect([200, 204]).toContain(readyResponse.status);
+    if (readyResponse.status === 200) {
+      await expect(readyResponse.json()).resolves.toMatchObject({
+        intakeId: parsePayload.intakeId,
+        status: "ReadyForPurchase"
+      });
+    }
+    expect(database.prepare("SELECT status FROM purchase_intakes WHERE id = ?").get(parsePayload.intakeId)).toEqual({
+      status: "ReadyForPurchase"
+    });
+    expect(
+      (
+        database.prepare("SELECT COUNT(*) AS count FROM purchase_intake_items WHERE intake_id = ?").get(parsePayload.intakeId) as {
+          count: number;
+        }
+      ).count
+    ).toBe(1);
+  });
+
+  it("returns INTAKE_NOT_FOUND for missing intake resources", async () => {
+    const { baseUrl } = routeOptions();
+    const missingIntakeId = "missing-intake";
+
+    const sourceResponse = await fetch(`${await baseUrl}/api/purchasing/intakes/${missingIntakeId}/source`);
+    expect(sourceResponse.status).toBe(404);
+    await expect(sourceResponse.json()).resolves.toMatchObject({ error: { code: "INTAKE_NOT_FOUND" } });
+
+    const putResponse = await fetch(`${await baseUrl}/api/purchasing/intakes/${missingIntakeId}`, {
+      body: JSON.stringify({ items: [] }),
+      headers: { "Content-Type": "application/json" },
+      method: "PUT"
+    });
+    expect(putResponse.status).toBe(404);
+    await expect(putResponse.json()).resolves.toMatchObject({ error: { code: "INTAKE_NOT_FOUND" } });
+
+    const readyResponse = await fetch(`${await baseUrl}/api/purchasing/intakes/${missingIntakeId}/ready-for-purchase`, {
+      body: JSON.stringify({ items: [] }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    expect(readyResponse.status).toBe(404);
+    await expect(readyResponse.json()).resolves.toMatchObject({ error: { code: "INTAKE_NOT_FOUND" } });
+  });
+
+  it("returns ranked historical candidates with isRecommended and card completion fields", async () => {
+    const { baseUrl } = routeOptions({
+      historicalCandidates: () => [
+        {
+          id: "BRK-ORANGE",
+          latestPrice: 17.25,
+          latestPurchaseDate: "2026-07-01",
+          packSize: "4x2.5L",
+          productName: "Orange Juice",
+          purchaseCount: 19,
+          supplierCode: "BRK",
+          supplierName: "Brakes",
+          supplierProductCode: "OJ-1"
+        },
+        {
+          id: "BRK-JUICE",
+          latestPrice: 14.5,
+          latestPurchaseDate: "2025-11-02",
+          packSize: "2x5L",
+          productName: "Apple Juice",
+          purchaseCount: 2,
+          supplierCode: "BRK",
+          supplierName: "Brakes",
+          supplierProductCode: "AP-1"
+        }
+      ],
+      historicalInventoryEntries: () => [{ productName: "Orange Juice", quantity: 7, supplierProduct: { id: "BRK-ORANGE" } }]
+    });
+    const response = await fetch(
+      `${await baseUrl}/api/purchasing/historical-products?query=${encodeURIComponent("orange juice")}`
+    );
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    const candidates = parseHistoricalCandidates(payload);
+
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(candidates[0]).toMatchObject({
+      id: "BRK-ORANGE",
+      isRecommended: true,
+      productName: "Orange Juice",
+      latestPrice: 17.25,
+      latestPurchaseDate: "2026-07-01",
+      packSize: "4x2.5L",
+      purchaseCount: 19,
+      supplierCode: "BRK",
+      supplierName: "Brakes",
+      supplierProductCode: "OJ-1",
+      currentInventoryQuantity: 7,
+      recommendedLastPrice: 17.25,
+      recommendedLastPurchaseDate: "2026-07-01",
+      recommendedPackSize: "4x2.5L",
+      recommendedProductCode: "OJ-1",
+      recommendedProductName: "Orange Juice",
+      recommendedPurchaseCount: 19,
+      recommendedSupplierCode: "BRK",
+      recommendedSupplierName: "Brakes",
+      recommendedSupplierProductId: "BRK-ORANGE"
+    });
+    expect(candidates[1]).toMatchObject({ id: "BRK-JUICE" });
   });
 
   it("saves a recognised draft, serves its image, and confirms reviewed rows", async () => {

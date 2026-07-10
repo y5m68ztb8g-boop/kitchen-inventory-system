@@ -89,8 +89,9 @@ export function readMultipartIntakeFile(request: IncomingMessage): Promise<Intak
         reject(new PurchasingApiError("UNSUPPORTED_INTAKE_FILE"));
         return;
       }
-      void validateIntakeUploadContent(upload)
-        .then(() => resolve(upload))
+      const completedUpload = upload;
+      void validateIntakeUploadContent(completedUpload)
+        .then(() => resolve(completedUpload))
         .catch(() => reject(new PurchasingApiError("UNSUPPORTED_INTAKE_FILE")));
     });
 
@@ -168,7 +169,7 @@ async function validatePdf(buffer: Buffer) {
     throw new Error("Invalid PDF signature");
   }
 
-  const loadingTask = getDocument({ data: new Uint8Array(buffer), disableWorker: true });
+  const loadingTask = getDocument({ data: new Uint8Array(buffer) });
   const document = await loadingTask.promise;
   try {
     if (document.numPages < 1) {

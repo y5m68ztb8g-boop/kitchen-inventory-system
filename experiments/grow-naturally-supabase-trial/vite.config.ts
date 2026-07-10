@@ -7,7 +7,7 @@ import { dirname, resolve } from "node:path";
 import { loadEnv } from "vite";
 import { createPurchasingDatabase } from "./server/purchasing/database";
 import { buildCurrentInventoryEntries } from "./server/purchasing/currentInventory";
-import { recogniseWhiteboard } from "./server/purchasing/openaiWhiteboard";
+import { recognisePurchasePdf, recogniseWhiteboard } from "./server/purchasing/openaiWhiteboard";
 import { installPurchasingRoutes } from "./server/purchasing/routes";
 
 const inventoryDatabasePath = resolve(
@@ -238,6 +238,13 @@ export default defineConfig(({ mode }) => {
           recognise: (image) =>
             recogniseWhiteboard(image, {
               apiKey: env.OPENAI_API_KEY,
+              baseURL: env.OPENAI_BASE_URL,
+              model: env.OPENAI_WHITEBOARD_MODEL
+            }),
+          recognisePdf: (source) =>
+            recognisePurchasePdf(source, {
+              apiKey: env.OPENAI_API_KEY,
+              baseURL: env.OPENAI_BASE_URL,
               model: env.OPENAI_WHITEBOARD_MODEL
             })
         });

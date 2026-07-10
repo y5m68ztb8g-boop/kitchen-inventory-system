@@ -3,16 +3,35 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import {
   confirmWhiteboardScan,
+  getIntakeSource,
   getScanImage,
+  handOffIntakeToPurchasing,
   saveDraftScan,
+  saveDraftIntake,
+  savePendingIntake,
   type ConfirmedWhiteboardItem,
   type HistoricalRecommendationFields
 } from "./database";
 import { PurchasingApiError } from "./errors";
 import { prepareWhiteboardImage, type PreparedWhiteboardImage, type WhiteboardImageInput } from "./imagePreparation";
-import { recommendHistoricalProduct, type HistoricalInventoryEntry, type HistoricalProductCandidate } from "./matching";
+import { recognisePurchaseSource, type PurchaseSourceForRecognition } from "./intakeRecognition";
+import { readMultipartIntakeFile } from "./intakeFiles";
+import type { PurchaseIntakeItem, SaveIntakeInput } from "./intakeSchema";
+import {
+  normaliseProductName,
+  rankHistoricalProducts,
+  recommendHistoricalProduct,
+  type HistoricalInventoryEntry,
+  type HistoricalProductCandidate,
+  type RankedHistoricalProduct
+} from "./matching";
 import { readMultipartImage } from "./multipart";
-import { recogniseWhiteboard, type WhiteboardImageForRecognition } from "./openaiWhiteboard";
+import {
+  recognisePurchasePdf,
+  recogniseWhiteboard,
+  type WhiteboardImageForRecognition
+} from "./openaiWhiteboard";
+import type { WhiteboardRecognition } from "../../src/purchasing/types";
 
 type RouteHandler = (
   request: IncomingMessage,
@@ -30,9 +49,11 @@ export type PurchasingRouteOptions = {
   database: Database.Database;
   historicalCandidates?: () => HistoricalProductCandidate[] | Promise<HistoricalProductCandidate[]>;
   historicalInventoryEntries?: () => HistoricalInventoryEntry[] | Promise<HistoricalInventoryEntry[]>;
+  intakeId?: () => string;
   model?: string;
   prepareImage?: (input: WhiteboardImageInput) => Promise<PreparedWhiteboardImage>;
   recognise?: (image: WhiteboardImageForRecognition) => ReturnType<typeof recogniseWhiteboard>;
+  recognisePdf?: (source: PurchaseSourceForRecognition) => Promise<WhiteboardRecognition>;
   scanId?: () => string;
 };
 
@@ -52,11 +73,34 @@ const confirmationItemSchema = z
 
 const confirmationSchema = z.object({ items: z.array(confirmationItemSchema).min(1) }).strict();
 
+const intakeItemSchema = confirmationItemSchema
+  .extend({
+    currentInventoryQuantity: z.number().nullable().optional(),
+    supplierCode: z.string().nullable().optional(),
+    supplierLastPrice: z.number().nullable().optional(),
+    supplierName: z.string().nullable().optional(),
+    supplierPackSize: z.string().nullable().optional(),
+    supplierProductCode: z.string().nullable().optional(),
+    supplierProductId: z.string().nullable().optional(),
+    supplierProductName: z.string().nullable().optional(),
+    supplierPurchaseCount: z.number().int().nonnegative().nullable().optional(),
+    supplierLastPurchaseDate: z.string().nullable().optional()
+  })
+  .strict();
+
+const intakeUpdateSchema = z
+  .object({
+    generalNotes: z.string().nullable().optional(),
+    items: z.array(intakeItemSchema).min(1)
+  })
+  .strict();
+
 export function installPurchasingRoutes(server: PurchasingMiddlewareServer, options: PurchasingRouteOptions) {
   const prepareImage = options.prepareImage ?? prepareWhiteboardImage;
   const recognise = options.recognise ?? recogniseWhiteboard;
   const historicalCandidates = options.historicalCandidates ?? (() => []);
   const historicalInventoryEntries = options.historicalInventoryEntries ?? (() => []);
+  const recognisePdf = options.recognisePdf ?? options.recognise ?? recognisePurchasePdf;
 
   server.middlewares.use(async (request, response, next) => {
     try {
@@ -65,6 +109,135 @@ export function installPurchasingRoutes(server: PurchasingMiddlewareServer, opti
 
       if (pathname !== "/api/purchasing" && !pathname.startsWith("/api/purchasing/")) {
         next();
+        return;
+      }
+
+      if (pathname === "/api/purchasing/historical-products") {
+        if (request.method !== "GET") {
+          methodNotAllowed(response);
+          return;
+        }
+        const query = url.searchParams.get("query")?.trim() ?? "";
+        const candidates = await historicalCandidates();
+        const inventoryEntries = await historicalInventoryEntries();
+        sendJson(response, 200, {
+          items: rankedCandidateSearch(query, candidates, inventoryEntries),
+          query
+        });
+        return;
+      }
+
+      if (pathname === "/api/purchasing/intakes/parse") {
+        if (request.method !== "POST") {
+          methodNotAllowed(response);
+          return;
+        }
+        const upload = await readMultipartIntakeFile(request);
+        const result = await recognisePurchaseSource(upload, {
+          prepareImage,
+          recogniseImage: (source) => recognise({ buffer: source.buffer, mimeType: source.mimeType }),
+          recognisePdf
+        });
+        const intakeId = options.intakeId?.() ?? crypto.randomUUID();
+        const items = result.recognition.items.map((item, index) => ({
+          ...item,
+          clientId: `row-${index + 1}`,
+          manualReviewed: false
+        }));
+        saveDraftIntake(options.database, {
+          aiModel: result.sourceType === "spreadsheet" ? null : options.model ?? process.env.OPENAI_WHITEBOARD_MODEL ?? "gpt-5.4-mini",
+          generalNotes: result.recognition.general_notes,
+          id: intakeId,
+          items,
+          originalFilename: upload.filename,
+          originalMimeType: upload.mimeType,
+          originalSizeBytes: upload.buffer.length,
+          sourceBlob: result.storedBuffer,
+          sourceType: result.sourceType,
+          storedMimeType: result.storedMimeType,
+          storedSizeBytes: result.storedBuffer.length,
+          unreadableText: result.recognition.unreadable_text
+        });
+        sendJson(response, 201, {
+          generalNotes: result.recognition.general_notes,
+          intakeId,
+          items: result.recognition.items,
+          originalFilename: upload.filename,
+          sourceType: result.sourceType,
+          sourceUrl: `/api/purchasing/intakes/${encodeURIComponent(intakeId)}/source`,
+          unreadableText: result.recognition.unreadable_text
+        });
+        return;
+      }
+
+      const intakeSourceMatch = pathname.match(/^\/api\/purchasing\/intakes\/([^/]+)\/source$/);
+      if (intakeSourceMatch) {
+        if (request.method !== "GET") {
+          methodNotAllowed(response);
+          return;
+        }
+        const source = getIntakeSource(options.database, decodeURIComponent(intakeSourceMatch[1]));
+        if (!source) {
+          throw new PurchasingApiError("INTAKE_NOT_FOUND");
+        }
+        response.statusCode = 200;
+        response.setHeader("Content-Type", source.mimeType);
+        response.setHeader("Content-Length", String(source.buffer.length));
+        response.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(source.filename)}`);
+        response.end(source.buffer);
+        return;
+      }
+
+      const readyMatch = pathname.match(/^\/api\/purchasing\/intakes\/([^/]+)\/ready-for-purchase$/);
+      if (readyMatch) {
+        if (request.method !== "POST") {
+          methodNotAllowed(response);
+          return;
+        }
+        const intakeId = decodeURIComponent(readyMatch[1]);
+        if (!getIntakeSource(options.database, intakeId)) {
+          throw new PurchasingApiError("INTAKE_NOT_FOUND");
+        }
+        const update = intakeUpdateSchema.safeParse(await readJsonBody(request));
+        if (!update.success) {
+          throw new PurchasingApiError("INVALID_REVIEW_DATA");
+        }
+        const items = await enrichMatchedItems(
+          update.data.items,
+          await historicalCandidates(),
+          await historicalInventoryEntries()
+        );
+        handOffIntakeToPurchasing(options.database, { intakeId, items });
+        sendJson(response, 200, { intakeId, status: "ReadyForPurchase" });
+        return;
+      }
+
+      const intakeMatch = pathname.match(/^\/api\/purchasing\/intakes\/([^/]+)$/);
+      if (intakeMatch) {
+        if (request.method !== "PUT") {
+          methodNotAllowed(response);
+          return;
+        }
+        const intakeId = decodeURIComponent(intakeMatch[1]);
+        const existing = readIntakeForSave(options.database, intakeId);
+        if (!existing) {
+          throw new PurchasingApiError("INTAKE_NOT_FOUND");
+        }
+        const update = intakeUpdateSchema.safeParse(await readJsonBody(request));
+        if (!update.success) {
+          throw new PurchasingApiError("INVALID_REVIEW_DATA");
+        }
+        const items = await enrichMatchedItems(
+          update.data.items,
+          await historicalCandidates(),
+          await historicalInventoryEntries()
+        );
+        savePendingIntake(options.database, {
+          ...existing,
+          generalNotes: update.data.generalNotes ?? existing.generalNotes,
+          items
+        });
+        sendJson(response, 200, { intakeId, status: "Pending" });
         return;
       }
 
@@ -162,6 +335,141 @@ export function installPurchasingRoutes(server: PurchasingMiddlewareServer, opti
   });
 }
 
+function readIntakeForSave(database: Database.Database, intakeId: string): SaveIntakeInput | null {
+  const row = database
+    .prepare(
+      `SELECT id, source_type, original_filename, original_mime_type, stored_mime_type,
+              original_size_bytes, stored_size_bytes, source_blob, ai_model,
+              unreadable_text_json, general_notes
+         FROM purchase_intakes
+        WHERE id = ?`
+    )
+    .get(intakeId) as
+    | {
+        ai_model: string | null;
+        general_notes: string | null;
+        id: string;
+        original_filename: string;
+        original_mime_type: string;
+        original_size_bytes: number;
+        source_blob: Buffer;
+        source_type: SaveIntakeInput["sourceType"];
+        stored_mime_type: string;
+        stored_size_bytes: number;
+        unreadable_text_json: string;
+      }
+    | undefined;
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    aiModel: row.ai_model,
+    generalNotes: row.general_notes,
+    id: row.id,
+    items: [],
+    originalFilename: row.original_filename,
+    originalMimeType: row.original_mime_type,
+    originalSizeBytes: row.original_size_bytes,
+    sourceBlob: row.source_blob,
+    sourceType: row.source_type,
+    storedMimeType: row.stored_mime_type,
+    storedSizeBytes: row.stored_size_bytes,
+    unreadableText: parseStringArray(row.unreadable_text_json)
+  };
+}
+
+function parseStringArray(value: string) {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+async function enrichMatchedItems(
+  items: PurchaseIntakeItem[],
+  candidates: HistoricalProductCandidate[],
+  inventoryEntries: HistoricalInventoryEntry[]
+) {
+  return items.map((item) => {
+    if (!item.supplierProductId) {
+      return item;
+    }
+    const candidate = candidates.find((entry) => entry.id === item.supplierProductId);
+    if (!candidate) {
+      throw new PurchasingApiError("INVALID_REVIEW_DATA");
+    }
+    const [card] = rankHistoricalProducts({
+      candidates: [candidate],
+      inventoryEntries,
+      productName: candidate.productName
+    });
+    return {
+      ...item,
+      currentInventoryQuantity: card.currentInventoryQuantity,
+      supplierCode: candidate.supplierCode,
+      supplierLastPrice: candidate.latestPrice,
+      supplierLastPurchaseDate: candidate.latestPurchaseDate,
+      supplierName: candidate.supplierName,
+      supplierPackSize: candidate.packSize,
+      supplierProductCode: candidate.supplierProductCode,
+      supplierProductName: candidate.productName,
+      supplierPurchaseCount: candidate.purchaseCount
+    };
+  });
+}
+
+function rankedCandidateSearch(
+  query: string,
+  candidates: HistoricalProductCandidate[],
+  inventoryEntries: HistoricalInventoryEntry[]
+) {
+  const ranked = rankHistoricalProducts({ candidates, inventoryEntries, productName: query });
+  const rankedIds = new Set(ranked.map((candidate) => candidate.id));
+  const queryTokens = new Set(normaliseProductName(query).split(" ").filter(Boolean));
+  const compactQuery = query.toLocaleLowerCase("en-GB").replace(/[^a-z0-9]/g, "").replace(/^f(?=\d)/, "");
+  const fallback = candidates
+    .filter((candidate) => {
+      if (rankedIds.has(candidate.id)) {
+        return false;
+      }
+      const candidateTokens = normaliseProductName(candidate.productName).split(" ");
+      const sharesToken = candidateTokens.some((token) => queryTokens.has(token));
+      const compactCode = candidate.supplierProductCode
+        .toLocaleLowerCase("en-GB")
+        .replace(/[^a-z0-9]/g, "")
+        .replace(/^f(?=\d)/, "");
+      return sharesToken || (compactQuery.length > 1 && compactCode.includes(compactQuery));
+    })
+    .map((candidate) => candidateCard(candidate, inventoryEntries))
+    .sort(
+      (left, right) =>
+        right.purchaseCount - left.purchaseCount ||
+        Date.parse(right.latestPurchaseDate) - Date.parse(left.latestPurchaseDate) ||
+        left.id.localeCompare(right.id)
+    );
+
+  return [...ranked, ...fallback].map((candidate, index) => ({
+    ...candidate,
+    isRecommended: index === 0
+  }));
+}
+
+function candidateCard(
+  candidate: HistoricalProductCandidate,
+  inventoryEntries: HistoricalInventoryEntry[]
+): RankedHistoricalProduct {
+  const [card] = rankHistoricalProducts({
+    candidates: [candidate],
+    inventoryEntries,
+    productName: candidate.productName
+  });
+  return { ...card, isRecommended: false, score: 0 };
+}
+
 function recommendationFor(item: ConfirmedWhiteboardItem): HistoricalRecommendationFields | null {
   return item.recommendedSupplierProductId === undefined
     ? null
@@ -231,7 +539,7 @@ function isPurchasingError(error: unknown): error is PurchasingApiError {
 }
 
 function methodNotAllowed(response: ServerResponse) {
-  response.setHeader("Allow", "GET, POST");
+  response.setHeader("Allow", "GET, POST, PUT");
   sendJson(response, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "不支持的请求方法。" } });
 }
 

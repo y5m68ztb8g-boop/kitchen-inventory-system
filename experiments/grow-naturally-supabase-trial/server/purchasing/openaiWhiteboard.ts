@@ -10,6 +10,12 @@ Preserve the visible original wording in raw_text. Correct only obvious spelling
 Never invent quantities, units, departments, products, or other details. Return null for any unreadable quantity, unit, or department.
 Use lower confidence for ambiguous handwriting, grouping, units, quantities, or uncertain interpretation.`;
 
+export const PURCHASE_DOCUMENT_INSTRUCTION = `Read this hotel purchasing document and return only explicit purchase-request items.
+Preserve the visible original wording in raw_text and correct only obvious spelling mistakes in product_name.
+Never invent products, quantities, units, departments, dates, guest counts, or event details. Return null when a quantity, unit, or department is absent or unreadable.
+Put visible event, date, guest-count, delivery, or other purchasing context in general_notes without calculating purchase quantities from that context.
+Use lower confidence for ambiguous text or uncertain interpretation.`;
+
 export type OpenAIResponsesClient = {
   responses: {
     parse: (request: unknown) => Promise<{ output_parsed?: unknown }>;
@@ -18,7 +24,9 @@ export type OpenAIResponsesClient = {
 
 export type RecogniseWhiteboardConfig = {
   apiKey?: string;
+  baseURL?: string;
   client?: OpenAIResponsesClient;
+  clientFactory?: (options: { apiKey: string; baseURL?: string }) => OpenAIResponsesClient;
   model?: string;
 };
 
@@ -36,7 +44,7 @@ export async function recogniseWhiteboard(
     throw new PurchasingApiError("MISSING_API_KEY");
   }
 
-  const client = config.client ?? (new OpenAI({ apiKey }) as unknown as OpenAIResponsesClient);
+  const client = config.client ?? createConfiguredClient(apiKey, config);
 
   try {
     const response = await client.responses.parse({
@@ -61,4 +69,53 @@ export async function recogniseWhiteboard(
     }
     throw new PurchasingApiError("AI_SERVICE_UNAVAILABLE");
   }
+}
+
+export async function recognisePurchasePdf(
+  source: { buffer: Buffer; filename: string; mimeType: string },
+  config: RecogniseWhiteboardConfig = {}
+): Promise<WhiteboardRecognition> {
+  const apiKey = config.apiKey ?? process.env.OPENAI_API_KEY;
+  if (!apiKey?.trim()) {
+    throw new PurchasingApiError("MISSING_API_KEY");
+  }
+
+  const client = config.client ?? createConfiguredClient(apiKey, config);
+  try {
+    const response = await client.responses.parse({
+      model: config.model ?? process.env.OPENAI_WHITEBOARD_MODEL ?? "gpt-5.4-mini",
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_file",
+              filename: source.filename,
+              file_data: `data:application/pdf;base64,${source.buffer.toString("base64")}`
+            },
+            { type: "input_text", text: PURCHASE_DOCUMENT_INSTRUCTION }
+          ]
+        }
+      ],
+      text: { format: zodTextFormat(whiteboardRecognitionSchema, "purchase_document") }
+    });
+    return parseWhiteboardRecognition(response.output_parsed);
+  } catch (error) {
+    if (error instanceof PurchasingApiError) {
+      throw error;
+    }
+    throw new PurchasingApiError("AI_SERVICE_UNAVAILABLE");
+  }
+}
+
+function createConfiguredClient(apiKey: string, config: RecogniseWhiteboardConfig) {
+  const baseURL = config.baseURL ?? process.env.OPENAI_BASE_URL;
+  return (config.clientFactory ?? createOpenAIClient)({
+    apiKey,
+    ...(baseURL?.trim() ? { baseURL: baseURL.trim() } : {})
+  });
+}
+
+function createOpenAIClient(options: { apiKey: string; baseURL?: string }) {
+  return new OpenAI(options) as unknown as OpenAIResponsesClient;
 }

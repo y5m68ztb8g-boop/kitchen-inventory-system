@@ -14,6 +14,7 @@
 - The home tile uses a camera icon and opens `#purchasing`; the camera only opens after choosing `AI拍照识别录入`.
 - Accepted uploads: JPG, PNG, HEIC, HEIF, WebP, PDF, XLSX, XLS and CSV; reject all other files and files larger than 25 MB.
 - The browser never receives `OPENAI_API_KEY` and never calls OpenAI directly.
+- Local testing may set server-only `OPENAI_BASE_URL` and `OPENAI_WHITEBOARD_MODEL` for an OpenAI Responses API compatible local GPT endpoint; the browser never receives either setting.
 - Images and PDFs are sent to OpenAI only from server code; PDFs use Responses API `input_file` data with structured output.
 - Excel/CSV parsing occurs on the server and never invents products or quantities.
 - Confirmed intake data and original files persist in SQLite, never in browser localStorage.
