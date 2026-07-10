@@ -50,7 +50,7 @@ const confirmationItemSchema = z
   })
   .strict();
 
-const confirmationSchema = z.object({ items: z.array(confirmationItemSchema) }).strict();
+const confirmationSchema = z.object({ items: z.array(confirmationItemSchema).min(1) }).strict();
 
 export function installPurchasingRoutes(server: PurchasingMiddlewareServer, options: PurchasingRouteOptions) {
   const prepareImage = options.prepareImage ?? prepareWhiteboardImage;

@@ -51,6 +51,10 @@ export async function prepareWhiteboardImage(input: WhiteboardImageInput): Promi
     throw new PurchasingApiError("UNSUPPORTED_IMAGE_FORMAT");
   }
 
+  if (metadata.format === "heif" && metadata.compression === "av1") {
+    throw new PurchasingApiError("UNSUPPORTED_IMAGE_FORMAT");
+  }
+
   const decodedMimeType = mapSharpFormatToMimeType(metadata.format);
   const width = metadata.width;
   const height = metadata.height;

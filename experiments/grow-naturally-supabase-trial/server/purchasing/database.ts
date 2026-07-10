@@ -187,6 +187,10 @@ export function confirmWhiteboardScan(database: Database.Database, input: Confir
 }
 
 function validateReviewItems(items: ConfirmedWhiteboardItem[]) {
+  if (items.length === 0) {
+    throw new PurchasingApiError("INVALID_REVIEW_DATA");
+  }
+
   for (const item of items) {
     const quantityIsValid = item.quantity === null || (Number.isFinite(item.quantity) && item.quantity >= 0);
     const confidenceIsValid =

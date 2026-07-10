@@ -35,6 +35,7 @@ describe("PurchasingPage capture", () => {
 
     await user.upload(cameraInput, new File(["whiteboard"], "whiteboard.jpg", { type: "image/jpeg" }));
 
+    expect(cameraInput).toHaveValue("");
     expect(screen.getByRole("img", { name: "采购白板预览" })).toHaveAttribute("src", "blob:purchase-whiteboard");
     expect(screen.getByRole("button", { name: "重新拍照" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "选择其他图片" })).toBeInTheDocument();
@@ -65,6 +66,45 @@ describe("PurchasingPage review", () => {
     vi.mocked(confirmWhiteboardScan).mockReset();
     URL.createObjectURL = vi.fn(() => "blob:purchase-whiteboard");
     URL.revokeObjectURL = vi.fn();
+  });
+
+  it("preserves the selected file and preview when recognition fails and retries the same file", async () => {
+    const user = userEvent.setup();
+    const file = new File(["whiteboard"], "whiteboard.jpg", { type: "image/jpeg" });
+    vi.mocked(scanWhiteboard)
+      .mockRejectedValueOnce(new Error("网络连接失败，请检查网络后重试。"))
+      .mockResolvedValueOnce({
+        generalNotes: null,
+        imageUrl: "/api/purchasing/whiteboard-scans/scan-retry-recognition/image",
+        items: [
+          {
+            confidence: 0.95,
+            department: "厨房",
+            notes: null,
+            product_name: "鸡胸肉",
+            quantity: 2,
+            raw_text: "鸡胸肉",
+            unit: "箱"
+          }
+        ],
+        scanId: "scan-retry-recognition",
+        unreadableText: []
+      });
+    render(<PurchasingPage />);
+
+    await user.upload(screen.getByLabelText("拍摄采购白板"), file);
+    await user.click(screen.getByRole("button", { name: "开始识别" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("网络连接失败，请检查网络后重试。");
+    expect(screen.getByRole("img", { name: "采购白板预览" })).toHaveAttribute(
+      "src",
+      "blob:purchase-whiteboard"
+    );
+    await user.click(screen.getByRole("button", { name: "重试识别" }));
+
+    expect(scanWhiteboard).toHaveBeenNthCalledWith(1, file);
+    expect(scanWhiteboard).toHaveBeenNthCalledWith(2, file);
+    expect(await screen.findByRole("heading", { name: "核对采购项目" })).toBeInTheDocument();
   });
 
   it("edits reviewed rows and requires manual review for a low-confidence row", async () => {

@@ -15,7 +15,7 @@ export type HistoricalProductCandidate = {
 export type HistoricalInventoryEntry = {
   productName: string;
   quantity: number;
-  supplierProduct: {
+  supplierProduct?: {
     id: string;
   };
 };
@@ -180,12 +180,15 @@ function parseDate(value: string) {
 }
 
 function currentInventoryQuantity(candidate: HistoricalProductCandidate, inventoryEntries: HistoricalInventoryEntry[]) {
-  const idMatches = inventoryEntries.filter((entry) => entry.supplierProduct.id === candidate.id);
+  const candidateName = normaliseProductName(candidate.productName);
+  const idMatches = inventoryEntries.filter((entry) => entry.supplierProduct?.id === candidate.id);
   if (idMatches.length > 0) {
-    return sumInventoryQuantity(idMatches);
+    const nameOnlyMatches = inventoryEntries.filter(
+      (entry) => !entry.supplierProduct?.id && normaliseProductName(entry.productName) === candidateName
+    );
+    return sumInventoryQuantity([...idMatches, ...nameOnlyMatches]);
   }
 
-  const candidateName = normaliseProductName(candidate.productName);
   return sumInventoryQuantity(
     inventoryEntries.filter((entry) => normaliseProductName(entry.productName) === candidateName)
   );

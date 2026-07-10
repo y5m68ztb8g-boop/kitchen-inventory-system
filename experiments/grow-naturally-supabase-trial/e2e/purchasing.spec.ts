@@ -25,9 +25,14 @@ async function expectNoHorizontalOverflow(page: Parameters<typeof test>[0]["page
 }
 
 test.describe("purchasing whiteboard flow", () => {
-  test.use({ viewport: { width: 390, height: 844 } });
+  test("reviews an uncertain whiteboard item before saving a pending recommendation", async ({ page }, testInfo) => {
+    const viewport = page.viewportSize();
+    if (testInfo.project.name === "desktop") {
+      expect(viewport?.width).toBeGreaterThanOrEqual(1000);
+    } else {
+      expect(viewport).toEqual({ width: 390, height: 844 });
+    }
 
-  test("reviews an uncertain whiteboard item before saving a pending recommendation", async ({ page }) => {
     let scanRequests = 0;
     let confirmationBody: unknown;
 

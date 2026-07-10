@@ -382,6 +382,20 @@ describe("confirmWhiteboardScan", () => {
     });
   });
 
+  it("rejects confirmation with no retained items and keeps the scan as Draft", () => {
+    const database = createDatabase();
+    saveDraft(database);
+
+    expect(() => confirmWhiteboardScan(database, { items: [], scanId: "scan-1" })).toThrowError(
+      expect.objectContaining({ code: "INVALID_REVIEW_DATA" })
+    );
+    expect(database.prepare("SELECT COUNT(*) AS count FROM whiteboard_scan_items").get()).toEqual({ count: 0 });
+    expect(database.prepare("SELECT status, confirmed_at FROM whiteboard_scans WHERE id = ?").get("scan-1")).toEqual({
+      confirmed_at: null,
+      status: "Draft"
+    });
+  });
+
   it("rolls back deletion and replacement rows when the second insert aborts", () => {
     const database = createDatabase();
     saveDraft(database);

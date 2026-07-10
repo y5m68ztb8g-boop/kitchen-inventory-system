@@ -6,7 +6,7 @@ import type { IncomingMessage } from "node:http";
 import { dirname, resolve } from "node:path";
 import { loadEnv } from "vite";
 import { createPurchasingDatabase } from "./server/purchasing/database";
-import type { HistoricalInventoryEntry } from "./server/purchasing/matching";
+import { buildCurrentInventoryEntries } from "./server/purchasing/currentInventory";
 import { recogniseWhiteboard } from "./server/purchasing/openaiWhiteboard";
 import { installPurchasingRoutes } from "./server/purchasing/routes";
 
@@ -64,32 +64,6 @@ async function readInventoryDatabase() {
   } catch {
     return emptyInventoryDatabase;
   }
-}
-
-function historicalInventoryEntries(value: unknown): HistoricalInventoryEntry[] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return [];
-  }
-
-  const database = value as { dryStore?: unknown; freezer?: unknown };
-  return [database.dryStore, database.freezer]
-    .flatMap((entries) => (Array.isArray(entries) ? entries : []))
-    .filter(
-      (entry): entry is HistoricalInventoryEntry =>
-        Boolean(
-          entry &&
-            typeof entry === "object" &&
-            "productName" in entry &&
-            typeof entry.productName === "string" &&
-            "quantity" in entry &&
-            typeof entry.quantity === "number" &&
-            "supplierProduct" in entry &&
-            entry.supplierProduct &&
-            typeof entry.supplierProduct === "object" &&
-            "id" in entry.supplierProduct &&
-            typeof entry.supplierProduct.id === "string"
-        )
-    );
 }
 
 async function writeInventoryDatabase(database: unknown) {
@@ -248,7 +222,11 @@ export default defineConfig(({ mode }) => {
           database: purchasingDatabase,
           historicalCandidates: async () =>
             (await server.ssrLoadModule("/src/generated/supplierCatalogue.ts")).SUPPLIER_CATALOGUE,
-          historicalInventoryEntries: async () => historicalInventoryEntries(await readInventoryDatabase()),
+          historicalInventoryEntries: async () =>
+            buildCurrentInventoryEntries(
+              await readInventoryDatabase(),
+              (await server.ssrLoadModule("/src/generated/freezerInventory.ts")).FREEZER_INVENTORY
+            ),
           model: env.OPENAI_WHITEBOARD_MODEL,
           recognise: (image) =>
             recogniseWhiteboard(image, {

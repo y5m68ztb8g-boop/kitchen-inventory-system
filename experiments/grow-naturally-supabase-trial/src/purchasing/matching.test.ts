@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import { describe, expect, it } from "vitest";
+import { buildCurrentInventoryEntries } from "../../server/purchasing/currentInventory";
 import { normaliseProductName, recommendHistoricalProduct } from "../../server/purchasing/matching";
 
 function candidate(
@@ -151,12 +152,13 @@ describe("recommendHistoricalProduct", () => {
       inventoryEntries: [
         { productName: "Other label", quantity: 2, supplierProduct: { id: "BRK-FRIES-1" } },
         { productName: "Skin On Fries", quantity: 3, supplierProduct: { id: "BRK-FRIES-1" } },
+        { productName: "Skin On Fries", quantity: 7 },
         { productName: "Skin On Fries", quantity: 100, supplierProduct: { id: "OTHER-ID" } }
       ],
       productName: "skin on chips"
     });
 
-    expect(result?.currentInventoryQuantity).toBe(5);
+    expect(result?.currentInventoryQuantity).toBe(12);
   });
 
   it("falls back to normalised inventory names when no supplier-product ID matches", () => {
@@ -172,5 +174,59 @@ describe("recommendHistoricalProduct", () => {
     });
 
     expect(result?.currentInventoryQuantity).toBe(4);
+  });
+});
+
+describe("buildCurrentInventoryEntries", () => {
+  it("includes numeric baseline quantities while respecting deleted and represented source rows", () => {
+    const entries = buildCurrentInventoryEntries(
+      {
+        deletedFreezerInventoryIds: ["CK003"],
+        dryStore: [],
+        freezer: [
+          {
+            productName: "Balmoral Chicken updated",
+            quantity: 3,
+            sourceItemId: "CK002",
+            supplierProduct: { id: "BRK-BALMORAL" }
+          }
+        ]
+      },
+      [
+        {
+          id: "CK001",
+          productName: "Chicken Breast",
+          quantityText: "7 Cases",
+          recordedSupplierCode: "",
+          suggestedSupplierCode: "",
+          suggestedSupplierProductCode: ""
+        },
+        {
+          id: "CK002",
+          productName: "Balmoral Chicken",
+          quantityText: "1 Case",
+          recordedSupplierCode: "",
+          suggestedSupplierCode: "BRK",
+          suggestedSupplierProductCode: "BALMORAL"
+        },
+        {
+          id: "CK003",
+          productName: "Chicken Curry",
+          quantityText: "Quantity not confirmed",
+          recordedSupplierCode: "",
+          suggestedSupplierCode: "",
+          suggestedSupplierProductCode: ""
+        }
+      ]
+    );
+
+    expect(entries).toEqual([
+      {
+        productName: "Balmoral Chicken updated",
+        quantity: 3,
+        supplierProduct: { id: "BRK-BALMORAL" }
+      },
+      { productName: "Chicken Breast", quantity: 7 }
+    ]);
   });
 });

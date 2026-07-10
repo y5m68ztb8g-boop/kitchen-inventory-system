@@ -112,6 +112,22 @@ describe("parseWhiteboardRecognition", () => {
       expect.objectContaining({ code: "NO_READABLE_TEXT" })
     );
   });
+
+  it("trims unreadable text and discards whitespace-only values", () => {
+    expect(
+      parseWhiteboardRecognition({
+        items: [],
+        unreadable_text: ["  lower-right note  ", "   "],
+        general_notes: null
+      }).unreadable_text
+    ).toEqual(["lower-right note"]);
+  });
+
+  it("reports no readable text when unreadable text contains only whitespace", () => {
+    expect(() =>
+      parseWhiteboardRecognition({ items: [], unreadable_text: ["  ", "\t"], general_notes: null })
+    ).toThrowError(expect.objectContaining({ code: "NO_READABLE_TEXT" }));
+  });
 });
 
 describe("prepareWhiteboardImage", () => {
@@ -148,6 +164,23 @@ describe("prepareWhiteboardImage", () => {
 
     expect(result.storedMimeType).toBe("image/webp");
     expect((await sharp(result.buffer).metadata()).format).toBe("webp");
+  });
+
+  it("rejects AVIF even though Sharp reports the HEIF container format", async () => {
+    const buffer = await sharp({
+      create: { width: 32, height: 32, channels: 3, background: "white" }
+    })
+      .avif()
+      .toBuffer();
+
+    expect(await sharp(buffer).metadata()).toMatchObject({ compression: "av1", format: "heif" });
+    await expect(
+      prepareWhiteboardImage({
+        buffer,
+        filename: "board.heic",
+        browserMimeType: "image/heic"
+      })
+    ).rejects.toMatchObject({ code: "UNSUPPORTED_IMAGE_FORMAT" });
   });
 
   it("rejects content that only pretends to be an image", async () => {

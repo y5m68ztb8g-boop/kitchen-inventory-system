@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Image as ImageIcon, Trash2 } from "lucide-react";
 
 import "./PurchasingPage.css";
@@ -18,7 +18,7 @@ type ReviewState = {
 
 type PurchasingState =
   | { kind: "idle" }
-  | { file: File; kind: "preview"; previewUrl: string }
+  | { file: File; kind: "preview"; previewUrl: string; recognitionError: string | null }
   | { file: File; kind: "recognising"; previewUrl: string }
   | ({ kind: "review" } & ReviewState)
   | ({ kind: "saving" } & ReviewState)
@@ -95,7 +95,13 @@ export function PurchasingPage() {
     }
 
     setShowOriginalImage(false);
-    setState({ file, kind: "preview", previewUrl: URL.createObjectURL(file) });
+    setState({ file, kind: "preview", previewUrl: URL.createObjectURL(file), recognitionError: null });
+  }
+
+  function selectFileFromInput(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    selectFile(file);
   }
 
   async function recognise() {
@@ -117,7 +123,12 @@ export function PurchasingPage() {
         unreadableText: response.unreadableText
       });
     } catch (error) {
-      setState({ kind: "error", message: error instanceof Error ? error.message : "识别失败，请稍后重试。" });
+      setState({
+        file,
+        kind: "preview",
+        previewUrl: nextPreviewUrl,
+        recognitionError: error instanceof Error ? error.message : "识别失败，请稍后重试。"
+      });
     }
   }
 
@@ -178,7 +189,7 @@ export function PurchasingPage() {
           capture="environment"
           className="purchasing-file-input"
           disabled={state.kind === "recognising" || state.kind === "saving"}
-          onChange={(event) => selectFile(event.target.files?.[0])}
+          onChange={selectFileFromInput}
           ref={cameraInputRef}
           type="file"
         />
@@ -187,7 +198,7 @@ export function PurchasingPage() {
           aria-label="选择采购白板图片"
           className="purchasing-file-input"
           disabled={state.kind === "recognising" || state.kind === "saving"}
-          onChange={(event) => selectFile(event.target.files?.[0])}
+          onChange={selectFileFromInput}
           ref={chooserInputRef}
           type="file"
         />
@@ -206,6 +217,14 @@ export function PurchasingPage() {
         {(state.kind === "preview" || state.kind === "recognising") && (
           <div className="purchasing-preview-state">
             <img alt="采购白板预览" className="purchasing-preview-image" src={state.previewUrl} />
+            {state.kind === "preview" && state.recognitionError && (
+              <div className="purchase-error" role="alert">
+                <p>{state.recognitionError}</p>
+                <button onClick={() => void recognise()} type="button">
+                  重试识别
+                </button>
+              </div>
+            )}
             <div className="purchasing-preview-actions">
               <button disabled={state.kind === "recognising"} onClick={() => cameraInputRef.current?.click()} type="button">
                 重新拍照

@@ -29,9 +29,11 @@ export function parseWhiteboardRecognition(value: unknown): WhiteboardRecognitio
     throw new PurchasingApiError("INVALID_AI_RESPONSE");
   }
 
-  if (parsed.data.items.length === 0 && parsed.data.unreadable_text.length === 0) {
+  const unreadableText = parsed.data.unreadable_text.map((value) => value.trim()).filter(Boolean);
+
+  if (parsed.data.items.length === 0 && unreadableText.length === 0) {
     throw new PurchasingApiError("NO_READABLE_TEXT");
   }
 
-  return parsed.data;
+  return { ...parsed.data, unreadable_text: unreadableText };
 }

@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPurchasingDatabase, getScanImage } from "../../server/purchasing/database";
+import { buildCurrentInventoryEntries } from "../../server/purchasing/currentInventory";
 import { MAX_UPLOAD_BYTES, prepareWhiteboardImage } from "../../server/purchasing/imagePreparation";
 import { readMultipartImage } from "../../server/purchasing/multipart";
 import {
@@ -14,6 +15,7 @@ import {
   type OpenAIResponsesClient
 } from "../../server/purchasing/openaiWhiteboard";
 import { installPurchasingRoutes, type PurchasingRouteOptions } from "../../server/purchasing/routes";
+import { FREEZER_INVENTORY } from "../generated/freezerInventory";
 
 const testKey = "task-3-test-key-must-not-leak";
 const recognisedResponse = {
@@ -247,7 +249,11 @@ function routeOptions() {
         supplierProductCode: "CHICKEN-1"
       }
     ],
-    historicalInventoryEntries: () => [],
+    historicalInventoryEntries: () =>
+      buildCurrentInventoryEntries(
+        { deletedFreezerInventoryIds: [], dryStore: [], freezer: [] },
+        FREEZER_INVENTORY
+      ),
     prepareImage: vi.fn().mockResolvedValue({
       buffer: Buffer.from("compressed-image"),
       originalSizeBytes: 5,
@@ -336,7 +342,10 @@ describe("purchasing API routes", () => {
       items: [
         expect.objectContaining({
           productName: "chicken breast",
-          recommendation: expect.objectContaining({ recommendedSupplierProductId: "BRK-CHICKEN" })
+          recommendation: expect.objectContaining({
+            currentInventoryQuantity: 7,
+            recommendedSupplierProductId: "BRK-CHICKEN"
+          })
         })
       ],
       scanId: "scan-test-id",
@@ -401,5 +410,30 @@ describe("purchasing API routes", () => {
     await expect((await fetch(`${await baseUrl}/api/purchasing/whiteboard-scans/missing/confirm`, { method: "POST" })).status).toBe(
       404
     );
+  });
+
+  it("rejects confirmation with no retained items without creating a Pending scan", async () => {
+    const { baseUrl, database } = routeOptions();
+    const upload = uploadBody();
+    await fetch(`${await baseUrl}/api/purchasing/scan-whiteboard`, {
+      body: upload.body,
+      headers: { "Content-Type": upload.contentType },
+      method: "POST"
+    });
+
+    const response = await fetch(
+      `${await baseUrl}/api/purchasing/whiteboard-scans/scan-test-id/confirm`,
+      {
+        body: JSON.stringify({ items: [] }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST"
+      }
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "INVALID_REVIEW_DATA" } });
+    expect(database.prepare("SELECT status FROM whiteboard_scans WHERE id = ?").get("scan-test-id")).toEqual({
+      status: "Draft"
+    });
   });
 });
