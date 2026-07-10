@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -91,6 +91,31 @@ describe("PurchasingPage intake hub", () => {
     expect(screen.getByText("weekend-events.xlsx")).toBeInTheDocument();
     expect(screen.getByText("表格 / XLSX")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "开始识别" })).toBeInTheDocument();
+  });
+
+  it("keeps manual PDF/XLSX preview source preview URL and revokes object URLs on replace/unmount", async () => {
+    const user = userEvent.setup();
+    URL.createObjectURL = vi
+      .fn()
+      .mockReturnValueOnce("blob:purchase-pdf")
+      .mockReturnValueOnce("blob:purchase-xlsx");
+
+    const { unmount } = render(<PurchasingPage />);
+    const manualInput = screen.getByLabelText(/选择|手动|upload/i);
+
+    await user.upload(manualInput, new File(["report"], "weekend-events.pdf", { type: "application/pdf" }));
+    const openPdfSource = screen.getByRole("link", { name: "查看原始文件" });
+    expect(openPdfSource).toHaveAttribute("href", "blob:purchase-pdf");
+
+    await user.upload(manualInput, new File(["report"], "weekend-events.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    }));
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:purchase-pdf");
+    const openXlsxSource = screen.getByRole("link", { name: "查看原始文件" });
+    expect(openXlsxSource).toHaveAttribute("href", "blob:purchase-xlsx");
+
+    unmount();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:purchase-xlsx");
   });
 
   it("revokes replaced preview URLs and the final URL on unmount", async () => {
@@ -306,6 +331,84 @@ describe("PurchasingPage recognition and review", () => {
     );
     expect(screen.getByText("已转入采购清单")).toBeInTheDocument();
     expect(screen.getAllByText("待匹配")).toHaveLength(2);
+  });
+
+  it("locks review controls in terminal state after ready-for-purchase and prevents duplicate submit operations", async () => {
+    const user = userEvent.setup();
+    render(<PurchasingPage />);
+    const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
+
+    await user.upload(cameraInput, new File(["whiteboard"], "invoice.jpg", { type: "image/jpeg" }));
+    await user.click(screen.getByRole("button", { name: "开始识别" }));
+
+    await user.click(screen.getByRole("checkbox", { name: /已人工核对 1/ }));
+    await user.click(screen.getByRole("button", { name: "转入采购清单" }));
+
+    expect(readyForPurchase).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("已转入采购清单")).toBeInTheDocument();
+
+    const saveDraftButton = screen.queryByRole("button", { name: "保存草稿" });
+    const handoffButton = screen.queryByRole("button", { name: "转入采购清单" });
+    const firstRow = screen.getByTestId("purchase-review-row-1");
+    const addRowButton = screen.queryByRole("button", { name: "新增一行" });
+    const removeRowButton = within(firstRow).queryByRole("button", { name: "删除第 1 行" });
+    const matchButton = within(firstRow).queryByRole("button", { name: /匹配发票商品/ });
+    const clearMatchButton = screen.queryByRole("button", { name: /清除匹配/ });
+    const reviewInputs = [
+      screen.getByLabelText("部门 1"),
+      screen.getByLabelText("产品名称 1"),
+      screen.getByLabelText("数量 1"),
+      screen.getByLabelText("单位 1"),
+      screen.getByLabelText("备注 1")
+    ];
+
+    expect(saveDraftButton).toBeDisabled();
+    expect(handoffButton).toBeDisabled();
+    expect(addRowButton).toBeDisabled();
+    expect(removeRowButton).toBeDisabled();
+    expect(matchButton).toBeDisabled();
+    if (clearMatchButton) {
+      expect(clearMatchButton).toBeDisabled();
+    }
+    reviewInputs.forEach((input) => {
+      expect(input).toBeDisabled();
+    });
+    expect(screen.getByRole("checkbox", { name: /已人工核对 1/ })).toBeDisabled();
+
+    if (handoffButton && !(handoffButton as HTMLButtonElement).disabled) {
+      await user.click(handoffButton);
+    }
+    if (saveDraftButton && !(saveDraftButton as HTMLButtonElement).disabled) {
+      await user.click(saveDraftButton);
+    }
+
+    expect(savePendingIntake).not.toHaveBeenCalled();
+    expect(readyForPurchase).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "开始识别" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /重试识别/ })).not.toBeInTheDocument();
+  });
+
+  it("requires accessible source dialog semantics for raw file preview", async () => {
+    const user = userEvent.setup();
+    render(<PurchasingPage />);
+    const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
+
+    await user.upload(cameraInput, new File(["whiteboard"], "invoice.jpg", { type: "image/jpeg" }));
+    await user.click(screen.getByRole("button", { name: "开始识别" }));
+    await user.click(screen.getByRole("button", { name: "查看原始文件" }));
+
+    const sourceDialog = screen.getByRole("dialog", { name: "原始采购文件" });
+    expect(sourceDialog).toHaveAttribute("aria-modal", "true");
+
+    const closeButton = screen.getByRole("button", { name: "关闭" });
+    if (document.activeElement === closeButton) {
+      expect(closeButton).toHaveFocus();
+    } else {
+      expect(closeButton).toBeInTheDocument();
+    }
+
+    await user.click(closeButton);
+    expect(screen.queryByRole("dialog", { name: "原始采购文件" })).not.toBeInTheDocument();
   });
 
   it("keeps selected file and allows recognition retry on parse/network errors", async () => {

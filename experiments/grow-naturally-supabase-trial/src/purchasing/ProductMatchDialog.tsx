@@ -61,7 +61,7 @@ export function ProductMatchDialog({ itemName, onChoose, onClose, selectedProduc
           <span>搜索产品、供应商或编码</span>
           <div>
             <Search aria-hidden="true" size={18} />
-            <input aria-label="搜索历史发票商品" onChange={(event) => setQuery(event.target.value)} value={query} />
+            <input aria-label="搜索历史发票商品" autoFocus onChange={(event) => setQuery(event.target.value)} value={query} />
           </div>
         </label>
 

@@ -22,6 +22,7 @@ type PreviewState = {
 
 type ReviewState = {
   action: "idle" | "saving" | "handing-off";
+  handedOff: boolean;
   intake: PurchaseIntakeResponse;
   items: PurchaseIntakeReviewItem[];
   kind: "review";
@@ -85,6 +86,7 @@ export function PurchasingPage() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const manualInputRef = useRef<HTMLInputElement>(null);
   const clientIdCounter = useRef(0);
+  const sourceCloseRef = useRef<HTMLButtonElement>(null);
   const [state, setState] = useState<PageState>({ kind: "hub" });
   const [matchingClientId, setMatchingClientId] = useState<string | null>(null);
   const [showSource, setShowSource] = useState(false);
@@ -97,6 +99,12 @@ export function PurchasingPage() {
       }
     };
   }, [previewUrl]);
+
+  useEffect(() => {
+    if (showSource) {
+      sourceCloseRef.current?.focus();
+    }
+  }, [showSource]);
 
   const requiresManualReview = useMemo(
     () =>
@@ -117,7 +125,7 @@ export function PurchasingPage() {
     if (!file) {
       return;
     }
-    const nextPreviewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : null;
+    const nextPreviewUrl = URL.createObjectURL(file);
     setShowSource(false);
     setMatchingClientId(null);
     setState({ error: null, file, kind: "preview", previewUrl: nextPreviewUrl, source });
@@ -141,6 +149,7 @@ export function PurchasingPage() {
       const intake = await parseIntake(preview.file);
       setState({
         action: "idle",
+        handedOff: false,
         intake,
         items: intake.items.map((item) => createReviewItem(item, nextClientId())),
         kind: "review",
@@ -157,7 +166,7 @@ export function PurchasingPage() {
 
   function updateItem(clientId: string, update: Partial<PurchaseIntakeReviewItem>) {
     setState((current) =>
-      current.kind === "review"
+      current.kind === "review" && !current.handedOff
         ? { ...current, items: current.items.map((item) => (item.clientId === clientId ? { ...item, ...update } : item)) }
         : current
     );
@@ -165,7 +174,7 @@ export function PurchasingPage() {
 
   function removeItem(clientId: string) {
     setState((current) =>
-      current.kind === "review"
+      current.kind === "review" && !current.handedOff
         ? { ...current, items: current.items.filter((item) => item.clientId !== clientId) }
         : current
     );
@@ -173,14 +182,14 @@ export function PurchasingPage() {
 
   function addItem() {
     setState((current) =>
-      current.kind === "review"
+      current.kind === "review" && !current.handedOff
         ? { ...current, items: [...current.items, emptyReviewItem(nextClientId())] }
         : current
     );
   }
 
   function chooseProduct(product: HistoricalProductCard) {
-    if (!matchingClientId) {
+    if (!matchingClientId || state.kind !== "review" || state.handedOff) {
       return;
     }
     updateItem(matchingClientId, {
@@ -215,7 +224,7 @@ export function PurchasingPage() {
   }
 
   async function saveDraft() {
-    if (state.kind !== "review" || requiresManualReview || state.items.length === 0) {
+    if (state.kind !== "review" || state.handedOff || requiresManualReview || state.items.length === 0) {
       return;
     }
     const review = state;
@@ -233,14 +242,14 @@ export function PurchasingPage() {
   }
 
   async function handOff() {
-    if (state.kind !== "review" || requiresManualReview || state.items.length === 0) {
+    if (state.kind !== "review" || state.handedOff || requiresManualReview || state.items.length === 0) {
       return;
     }
     const review = state;
     setState({ ...review, action: "handing-off", message: null });
     try {
       await readyForPurchase(review.intake.intakeId, review.items);
-      setState({ ...review, action: "idle", message: "已转入采购清单" });
+      setState({ ...review, action: "idle", handedOff: true, message: "已转入采购清单" });
     } catch (error) {
       setState({
         ...review,
@@ -293,13 +302,16 @@ export function PurchasingPage() {
 
         {(state.kind === "preview" || state.kind === "recognising") && (
           <section className="purchasing-preview-state" aria-label="文件预览">
-            {state.previewUrl ? (
+            {state.file.type.startsWith("image/") && state.previewUrl ? (
               <img alt="采购文件图片预览" className="purchasing-preview-image" src={state.previewUrl} />
             ) : (
               <div className="purchasing-file-preview">
                 {state.file.type === "application/pdf" ? <FileText aria-hidden="true" size={36} /> : <FileSpreadsheet aria-hidden="true" size={36} />}
                 <div><strong>{state.file.name}</strong><span>{fileKind(state.file)}</span></div>
               </div>
+            )}
+            {state.previewUrl && !state.file.type.startsWith("image/") && (
+              <a className="purchasing-preview-source-link" href={state.previewUrl} rel="noreferrer" target="_blank">查看原始文件</a>
             )}
             {state.error && (
               <div className="purchase-error" role="alert">
@@ -339,21 +351,21 @@ export function PurchasingPage() {
                 return (
                   <article className={`purchase-review-row${lowConfidence ? " purchase-review-row-low-confidence" : ""}`} data-testid={`purchase-review-row-${number}`} key={item.clientId} role="row">
                     <div className="purchase-review-fields">
-                      <label><span>部门</span><input aria-label={`部门 ${number}`} onChange={(event) => updateItem(item.clientId, { department: nullableText(event.target.value) })} value={item.department ?? ""} /></label>
-                      <label className="purchase-product-field"><span>产品名称</span><input aria-label={`产品名称 ${number}`} onChange={(event) => updateItem(item.clientId, { product_name: event.target.value })} value={item.product_name} /></label>
-                      <label><span>数量</span><input aria-label={`数量 ${number}`} inputMode="decimal" min="0" onChange={(event) => updateItem(item.clientId, { quantity: event.target.value === "" ? null : Number(event.target.value) })} type="number" value={item.quantity ?? ""} /></label>
-                      <label><span>单位</span><input aria-label={`单位 ${number}`} onChange={(event) => updateItem(item.clientId, { unit: nullableText(event.target.value) })} value={item.unit ?? ""} /></label>
-                      <label><span>备注</span><input aria-label={`备注 ${number}`} onChange={(event) => updateItem(item.clientId, { notes: nullableText(event.target.value) })} value={item.notes ?? ""} /></label>
+                      <label><span>部门</span><input aria-label={`部门 ${number}`} disabled={state.handedOff} onChange={(event) => updateItem(item.clientId, { department: nullableText(event.target.value) })} value={item.department ?? ""} /></label>
+                      <label className="purchase-product-field"><span>产品名称</span><input aria-label={`产品名称 ${number}`} disabled={state.handedOff} onChange={(event) => updateItem(item.clientId, { product_name: event.target.value })} value={item.product_name} /></label>
+                      <label><span>数量</span><input aria-label={`数量 ${number}`} disabled={state.handedOff} inputMode="decimal" min="0" onChange={(event) => updateItem(item.clientId, { quantity: event.target.value === "" ? null : Number(event.target.value) })} type="number" value={item.quantity ?? ""} /></label>
+                      <label><span>单位</span><input aria-label={`单位 ${number}`} disabled={state.handedOff} onChange={(event) => updateItem(item.clientId, { unit: nullableText(event.target.value) })} value={item.unit ?? ""} /></label>
+                      <label><span>备注</span><input aria-label={`备注 ${number}`} disabled={state.handedOff} onChange={(event) => updateItem(item.clientId, { notes: nullableText(event.target.value) })} value={item.notes ?? ""} /></label>
                     </div>
                     <div className="purchase-review-meta">
                       <label className="purchase-review-check">
-                        <input aria-label={`已人工核对 ${number}`} checked={item.manualReviewed} onChange={(event) => updateItem(item.clientId, { manualReviewed: event.target.checked })} type="checkbox" />
+                        <input aria-label={`已人工核对 ${number}`} checked={item.manualReviewed} disabled={state.handedOff} onChange={(event) => updateItem(item.clientId, { manualReviewed: event.target.checked })} type="checkbox" />
                         <span>{lowConfidence ? "已人工核对（必填）" : "已人工核对"}</span>
                       </label>
                       <span className={item.supplierProductId ? "purchase-match-state purchase-match-state-ok" : "purchase-match-state"}>{item.supplierProductId ? `${item.supplierName} · ${item.supplierProductCode}` : "待匹配"}</span>
-                      <button onClick={() => setMatchingClientId(item.clientId)} type="button">匹配发票商品 {item.product_name}</button>
-                      {item.supplierProductId && <button onClick={() => clearProduct(item.clientId)} type="button">清除匹配</button>}
-                      <button aria-label={`删除第 ${number} 行`} className="purchasing-icon-button" onClick={() => removeItem(item.clientId)} title={`删除第 ${number} 行`} type="button"><Trash2 aria-hidden="true" size={18} /></button>
+                      <button disabled={state.handedOff} onClick={() => setMatchingClientId(item.clientId)} type="button">匹配发票商品 {item.product_name}</button>
+                      {item.supplierProductId && <button disabled={state.handedOff} onClick={() => clearProduct(item.clientId)} type="button">清除匹配</button>}
+                      <button aria-label={`删除第 ${number} 行`} className="purchasing-icon-button" disabled={state.handedOff} onClick={() => removeItem(item.clientId)} title={`删除第 ${number} 行`} type="button"><Trash2 aria-hidden="true" size={18} /></button>
                     </div>
                   </article>
                 );
@@ -361,9 +373,9 @@ export function PurchasingPage() {
             </div>
 
             <div className="purchase-review-actions">
-              <button onClick={addItem} type="button"><Plus aria-hidden="true" size={18} />新增一行</button>
-              <button disabled={state.action !== "idle" || requiresManualReview || state.items.length === 0} onClick={() => void saveDraft()} type="button">{state.action === "saving" ? "保存中..." : "保存草稿"}</button>
-              <button className="purchasing-primary-action" disabled={state.action !== "idle" || requiresManualReview || state.items.length === 0} onClick={() => void handOff()} type="button">{state.action === "handing-off" ? "转入中..." : "转入采购清单"}</button>
+              <button disabled={state.handedOff} onClick={addItem} type="button"><Plus aria-hidden="true" size={18} />新增一行</button>
+              <button disabled={state.handedOff || state.action !== "idle" || requiresManualReview || state.items.length === 0} onClick={() => void saveDraft()} type="button">{state.action === "saving" ? "保存中..." : "保存草稿"}</button>
+              <button className="purchasing-primary-action" disabled={state.handedOff || state.action !== "idle" || requiresManualReview || state.items.length === 0} onClick={() => void handOff()} type="button">{state.action === "handing-off" ? "转入中..." : "转入采购清单"}</button>
             </div>
           </section>
         )}
@@ -373,8 +385,8 @@ export function PurchasingPage() {
 
       {showSource && state.kind === "review" && (
         <div className="purchase-image-dialog-backdrop">
-          <section aria-label="原始采购文件" className="purchase-image-dialog" role="dialog">
-            <div className="purchase-image-dialog-heading"><h2>原始采购文件</h2><button onClick={() => setShowSource(false)} type="button">关闭</button></div>
+          <section aria-label="原始采购文件" aria-modal="true" className="purchase-image-dialog" role="dialog">
+            <div className="purchase-image-dialog-heading"><h2>原始采购文件</h2><button onClick={() => setShowSource(false)} ref={sourceCloseRef} type="button">关闭</button></div>
             {state.intake.sourceType === "image" || state.intake.sourceType === "camera" ? <img alt="原始采购文件" src={state.intake.sourceUrl} /> : <iframe src={state.intake.sourceUrl} title="原始采购文件" />}
           </section>
         </div>
