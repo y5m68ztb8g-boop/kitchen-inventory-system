@@ -8,9 +8,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   confirmWhiteboardScan,
   createPurchasingDatabase,
+  getIntakeSource,
   getScanImage,
+  handOffIntakeToPurchasing,
+  saveDraftIntake,
+  savePendingIntake,
   saveDraftScan
 } from "../../server/purchasing/database";
+import type { PurchaseIntakeItem, SaveIntakeInput } from "../../server/purchasing/intakeSchema";
 
 const openDatabases: Database.Database[] = [];
 const temporaryDirectories: string[] = [];
@@ -46,6 +51,40 @@ function saveDraft(database: Database.Database, id = "scan-1") {
   });
 }
 
+function reviewedItem(overrides: Partial<PurchaseIntakeItem> = {}): PurchaseIntakeItem {
+  return {
+    clientId: "intake-row-1",
+    confidence: 0.91,
+    department: "Kitchen",
+    manualReviewed: false,
+    notes: null,
+    product_name: "Bread rolls",
+    quantity: 4,
+    raw_text: "4 bread rolls",
+    unit: "tray",
+    ...overrides
+  };
+}
+
+function intakeWith(overrides: Partial<SaveIntakeInput> = {}): SaveIntakeInput {
+  return {
+    aiModel: null,
+    createdAt: "2026-07-10T09:00:00.000Z",
+    generalNotes: "Friday event",
+    id: "intake-1",
+    items: [reviewedItem()],
+    originalFilename: "event-purchases.pdf",
+    originalMimeType: "application/pdf",
+    originalSizeBytes: 12,
+    sourceBlob: Buffer.from("original-pdf"),
+    sourceType: "pdf",
+    storedMimeType: "application/pdf",
+    storedSizeBytes: 12,
+    unreadableText: ["handwritten note"],
+    ...overrides
+  };
+}
+
 describe("createPurchasingDatabase", () => {
   it("creates missing parent directories for a nested database path", () => {
     const temporaryDirectory = mkdtempSync(join(tmpdir(), "purchasing-database-"));
@@ -71,6 +110,11 @@ describe("createPurchasingDatabase", () => {
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'whiteboard_%' ORDER BY name")
         .all()
     ).toEqual([{ name: "whiteboard_scan_items" }, { name: "whiteboard_scans" }]);
+    expect(
+      database
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'purchase_intake%' ORDER BY name")
+        .all()
+    ).toEqual([{ name: "purchase_intake_items" }, { name: "purchase_intakes" }]);
   });
 
   it("rejects invalid scan statuses at the SQL boundary", () => {
@@ -130,6 +174,95 @@ describe("createPurchasingDatabase", () => {
 
     expect(database.prepare("SELECT COUNT(*) AS count FROM whiteboard_scans").get()).toEqual({ count: 0 });
     expect(database.prepare("SELECT COUNT(*) AS count FROM whiteboard_scan_items").get()).toEqual({ count: 0 });
+  });
+});
+
+describe("generic purchase intakes", () => {
+  it("stores a pending intake with its original PDF and matched invoice product", () => {
+    const database = createDatabase();
+
+    savePendingIntake(
+      database,
+      intakeWith({
+        items: [
+          reviewedItem({
+            supplierLastPrice: 18.25,
+            supplierProductCode: "135177",
+            supplierProductId: "BRK-135177",
+            supplierProductName: "Sourdough Bread Rolls"
+          })
+        ]
+      })
+    );
+
+    expect(database.prepare("SELECT status, source_type, original_mime_type FROM purchase_intakes WHERE id = ?").get("intake-1")).toEqual({
+      original_mime_type: "application/pdf",
+      source_type: "pdf",
+      status: "Pending"
+    });
+    expect(
+      database
+        .prepare(
+          "SELECT product_name, supplier_product_id, supplier_product_code, supplier_product_name, supplier_last_price FROM purchase_intake_items WHERE intake_id = ?"
+        )
+        .get("intake-1")
+    ).toEqual({
+      product_name: "Bread rolls",
+      supplier_last_price: 18.25,
+      supplier_product_code: "135177",
+      supplier_product_id: "BRK-135177",
+      supplier_product_name: "Sourdough Bread Rolls"
+    });
+    expect(getIntakeSource(database, "intake-1")).toEqual({
+      buffer: Buffer.from("original-pdf"),
+      filename: "event-purchases.pdf",
+      mimeType: "application/pdf"
+    });
+  });
+
+  it("keeps draft intakes in SQLite without marking them ready for purchase", () => {
+    const database = createDatabase();
+
+    saveDraftIntake(database, intakeWith({ sourceType: "spreadsheet" }));
+
+    expect(database.prepare("SELECT status, handed_off_at FROM purchase_intakes WHERE id = ?").get("intake-1")).toEqual({
+      handed_off_at: null,
+      status: "Draft"
+    });
+  });
+
+  it("moves a reviewed intake into the future purchasing queue without creating an order", () => {
+    const database = createDatabase();
+    savePendingIntake(database, intakeWith());
+
+    handOffIntakeToPurchasing(database, {
+      handedOffAt: "2026-07-10T10:00:00.000Z",
+      intakeId: "intake-1",
+      items: [reviewedItem()]
+    });
+
+    expect(database.prepare("SELECT status, handed_off_at FROM purchase_intakes WHERE id = ?").get("intake-1")).toEqual({
+      handed_off_at: "2026-07-10T10:00:00.000Z",
+      status: "ReadyForPurchase"
+    });
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'purchase_orders'").get()).toBeUndefined();
+  });
+
+  it.each([
+    { items: [], name: "no retained items" },
+    { items: [reviewedItem({ clientId: "duplicate" }), reviewedItem({ clientId: "duplicate" })], name: "duplicate client IDs" },
+    { items: [reviewedItem({ product_name: "   " })], name: "empty product name" },
+    { items: [reviewedItem({ quantity: -1 })], name: "negative quantity" },
+    { items: [reviewedItem({ quantity: Number.NaN })], name: "non-finite quantity" },
+    { items: [reviewedItem({ confidence: 0.79, manualReviewed: false })], name: "unreviewed low confidence item" }
+  ])("rejects $name without changing the existing intake", ({ items }) => {
+    const database = createDatabase();
+    saveDraftIntake(database, intakeWith());
+
+    expect(() => savePendingIntake(database, intakeWith({ items }))).toThrowError(
+      expect.objectContaining({ code: "INVALID_REVIEW_DATA" })
+    );
+    expect(database.prepare("SELECT status FROM purchase_intakes WHERE id = ?").get("intake-1")).toEqual({ status: "Draft" });
   });
 });
 

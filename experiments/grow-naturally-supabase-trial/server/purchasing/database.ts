@@ -3,6 +3,13 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { WhiteboardReviewItem } from "../../src/purchasing/types";
 import { PurchasingApiError } from "./errors";
+import {
+  purchaseIntakeSchema,
+  type HandOffIntakeInput,
+  type PurchaseIntakeItem,
+  type PurchaseIntakeStatus,
+  type SaveIntakeInput
+} from "./intakeSchema";
 
 export type DraftScanInput = {
   aiModel: string;
@@ -39,7 +46,8 @@ export type ConfirmWhiteboardScanInput = {
   scanId: string;
 };
 
-const schema = `
+const schema = `${purchaseIntakeSchema}
+
   CREATE TABLE IF NOT EXISTS whiteboard_scans (
     id TEXT PRIMARY KEY,
     status TEXT NOT NULL CHECK (status IN ('Draft', 'Pending', 'RecognitionFailed')),
@@ -129,6 +137,157 @@ export function getScanImage(database: Database.Database, scanId: string) {
     .get(scanId) as { buffer: Buffer; filename: string; mimeType: string } | undefined;
 
   return row ?? null;
+}
+
+export function saveDraftIntake(database: Database.Database, input: SaveIntakeInput) {
+  persistIntake(database, input, "Draft");
+}
+
+export function savePendingIntake(database: Database.Database, input: SaveIntakeInput) {
+  validatePurchaseIntakeItems(input.items);
+  persistIntake(database, input, "Pending");
+}
+
+export function handOffIntakeToPurchasing(database: Database.Database, input: HandOffIntakeInput) {
+  validatePurchaseIntakeItems(input.items);
+  const handedOffAt = input.handedOffAt ?? new Date().toISOString();
+  const result = database
+    .prepare(
+      `UPDATE purchase_intakes
+          SET status = 'ReadyForPurchase', updated_at = ?, handed_off_at = ?
+        WHERE id = ?`
+    )
+    .run(handedOffAt, handedOffAt, input.intakeId);
+
+  if (result.changes !== 1) {
+    throw new PurchasingApiError("INTAKE_NOT_FOUND");
+  }
+}
+
+export function getIntakeSource(database: Database.Database, intakeId: string) {
+  const row = database
+    .prepare(
+      `SELECT source_blob AS buffer, original_filename AS filename, stored_mime_type AS mimeType
+         FROM purchase_intakes
+        WHERE id = ?`
+    )
+    .get(intakeId) as { buffer: Buffer; filename: string; mimeType: string } | undefined;
+
+  return row ?? null;
+}
+
+function persistIntake(database: Database.Database, input: SaveIntakeInput, status: Extract<PurchaseIntakeStatus, "Draft" | "Pending">) {
+  const savedAt = input.createdAt ?? new Date().toISOString();
+  const insertItem = database.prepare(
+    `INSERT INTO purchase_intake_items (
+       id, intake_id, row_order, department, raw_text, product_name, quantity,
+       unit, notes, confidence, manual_reviewed, supplier_product_id,
+       supplier_name, supplier_code, supplier_product_code, supplier_product_name,
+       supplier_pack_size, supplier_last_price, supplier_purchase_count,
+       supplier_last_purchase_date, current_inventory_quantity, created_at, updated_at
+     ) VALUES (
+       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+     )`
+  );
+  const save = database.transaction(() => {
+    database
+      .prepare(
+        `INSERT INTO purchase_intakes (
+           id, status, source_type, original_filename, original_mime_type,
+           stored_mime_type, original_size_bytes, stored_size_bytes, source_blob,
+           ai_model, unreadable_text_json, general_notes, created_at, updated_at, handed_off_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+         ON CONFLICT(id) DO UPDATE SET
+           status = excluded.status,
+           source_type = excluded.source_type,
+           original_filename = excluded.original_filename,
+           original_mime_type = excluded.original_mime_type,
+           stored_mime_type = excluded.stored_mime_type,
+           original_size_bytes = excluded.original_size_bytes,
+           stored_size_bytes = excluded.stored_size_bytes,
+           source_blob = excluded.source_blob,
+           ai_model = excluded.ai_model,
+           unreadable_text_json = excluded.unreadable_text_json,
+           general_notes = excluded.general_notes,
+           updated_at = excluded.updated_at,
+           handed_off_at = NULL`
+      )
+      .run(
+        input.id,
+        status,
+        input.sourceType,
+        input.originalFilename,
+        input.originalMimeType,
+        input.storedMimeType,
+        input.originalSizeBytes,
+        input.storedSizeBytes,
+        input.sourceBlob,
+        input.aiModel,
+        JSON.stringify(input.unreadableText),
+        input.generalNotes,
+        savedAt,
+        savedAt
+      );
+    database.prepare("DELETE FROM purchase_intake_items WHERE intake_id = ?").run(input.id);
+
+    input.items.forEach((item, rowOrder) => {
+      insertItem.run(
+        `${input.id}:${item.clientId}`,
+        input.id,
+        rowOrder,
+        item.department,
+        item.raw_text,
+        item.product_name.trim(),
+        item.quantity,
+        item.unit,
+        item.notes,
+        item.confidence,
+        item.manualReviewed ? 1 : 0,
+        item.supplierProductId ?? null,
+        item.supplierName ?? null,
+        item.supplierCode ?? null,
+        item.supplierProductCode ?? null,
+        item.supplierProductName ?? null,
+        item.supplierPackSize ?? null,
+        item.supplierLastPrice ?? null,
+        item.supplierPurchaseCount ?? null,
+        item.supplierLastPurchaseDate ?? null,
+        item.currentInventoryQuantity ?? null,
+        savedAt,
+        savedAt
+      );
+    });
+  });
+
+  save();
+}
+
+function validatePurchaseIntakeItems(items: PurchaseIntakeItem[]) {
+  if (items.length === 0) {
+    throw new PurchasingApiError("INVALID_REVIEW_DATA");
+  }
+
+  const clientIds = new Set<string>();
+  for (const item of items) {
+    const quantityIsValid = item.quantity === null || (Number.isFinite(item.quantity) && item.quantity >= 0);
+    const confidenceIsValid = Number.isFinite(item.confidence) && item.confidence >= 0 && item.confidence <= 1;
+
+    if (
+      clientIds.has(item.clientId) ||
+      typeof item.clientId !== "string" ||
+      item.clientId.trim().length === 0 ||
+      typeof item.product_name !== "string" ||
+      item.product_name.trim().length === 0 ||
+      !quantityIsValid ||
+      !confidenceIsValid ||
+      typeof item.manualReviewed !== "boolean" ||
+      (item.confidence < 0.8 && !item.manualReviewed)
+    ) {
+      throw new PurchasingApiError("INVALID_REVIEW_DATA");
+    }
+
+    clientIds.add(item.clientId);
+  }
 }
 
 export function confirmWhiteboardScan(database: Database.Database, input: ConfirmWhiteboardScanInput) {

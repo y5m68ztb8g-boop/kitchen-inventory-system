@@ -2,8 +2,11 @@
 
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import type { IncomingMessage } from "node:http";
+import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
+import { readMultipartIntakeFile } from "../../server/purchasing/intakeFiles";
 import {
   COMPRESSION_THRESHOLD_BYTES,
   mapSharpFormatToMimeType,
@@ -29,6 +32,58 @@ async function makeTestImage(format: "jpeg" | "png" | "webp") {
       return image.webp().toBuffer();
   }
 }
+
+function intakeUploadRequest(mimeType: string, value: Buffer, fieldName = "file") {
+  const boundary = "intake-upload-boundary";
+  const body = Buffer.concat([
+    Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="${fieldName}"; filename="purchase-file"\r\nContent-Type: ${mimeType}\r\n\r\n`
+    ),
+    value,
+    Buffer.from(`\r\n--${boundary}--\r\n`)
+  ]);
+  const request = Readable.from([body]) as Readable & { headers: Record<string, string> };
+  request.headers = { "content-type": `multipart/form-data; boundary=${boundary}` };
+  return request as unknown as IncomingMessage;
+}
+
+describe("readMultipartIntakeFile", () => {
+  it.each([
+    "image/jpeg",
+    "image/png",
+    "image/heic",
+    "image/heif",
+    "image/webp",
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+    "text/csv"
+  ])("accepts the supported intake upload %s", async (mimeType) => {
+    await expect(readMultipartIntakeFile(intakeUploadRequest(mimeType, Buffer.from("purchase file")))).resolves.toEqual({
+      buffer: Buffer.from("purchase file"),
+      filename: "purchase-file",
+      mimeType
+    });
+  });
+
+  it("rejects an unsupported intake upload format", async () => {
+    await expect(readMultipartIntakeFile(intakeUploadRequest("image/gif", Buffer.from("gif")))).rejects.toMatchObject({
+      code: "UNSUPPORTED_INTAKE_FILE"
+    });
+  });
+
+  it("rejects an empty intake upload", async () => {
+    await expect(readMultipartIntakeFile(intakeUploadRequest("application/pdf", Buffer.alloc(0)))).rejects.toMatchObject({
+      code: "EMPTY_INTAKE_FILE"
+    });
+  });
+
+  it("rejects an intake upload larger than 25 MB", async () => {
+    await expect(
+      readMultipartIntakeFile(intakeUploadRequest("application/pdf", Buffer.alloc(25 * 1024 * 1024 + 1)))
+    ).rejects.toMatchObject({ code: "INTAKE_FILE_TOO_LARGE" });
+  });
+});
 
 describe("parseWhiteboardRecognition", () => {
   it("accepts the requested whiteboard response shape", () => {
