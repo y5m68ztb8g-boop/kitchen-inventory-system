@@ -182,6 +182,118 @@ describe("recommendHistoricalProduct", () => {
 });
 
 describe("rankHistoricalProducts", () => {
+  it("excludes candidates below the semantic relevance threshold", () => {
+    const ranked = rankHistoricalProducts({
+      productName: "orange juice",
+      candidates: [candidate("Washing Up Liquid", "SOAP-1", { purchaseCount: 5000 })],
+      inventoryEntries: []
+    });
+
+    expect(ranked).toEqual([]);
+  });
+
+  it("returns the complete ranked contract with a numeric score", () => {
+    const ranked = rankHistoricalProducts({
+      productName: "orange juice",
+      candidates: [
+        candidate("Orange Juice", "ORANGE-1", {
+          id: "BRK-ORANGE-1",
+          latestPrice: 18.75,
+          latestPurchaseDate: "2026-07-02",
+          packSize: "4x2.5L",
+          purchaseCount: 23,
+          supplierCode: "BRK",
+          supplierName: "Brakes"
+        })
+      ],
+      inventoryEntries: []
+    });
+
+    expect(ranked[0]).toMatchObject({
+      id: "BRK-ORANGE-1",
+      latestPrice: 18.75,
+      latestPurchaseDate: "2026-07-02",
+      packSize: "4x2.5L",
+      productName: "Orange Juice",
+      purchaseCount: 23,
+      supplierCode: "BRK",
+      supplierName: "Brakes",
+      supplierProductCode: "ORANGE-1",
+      currentInventoryQuantity: 0,
+      recommendedLastPrice: 18.75,
+      recommendedLastPurchaseDate: "2026-07-02",
+      recommendedPackSize: "4x2.5L",
+      recommendedProductCode: "ORANGE-1",
+      recommendedProductName: "Orange Juice",
+      recommendedPurchaseCount: 23,
+      recommendedSupplierCode: "BRK",
+      recommendedSupplierName: "Brakes",
+      recommendedSupplierProductId: "BRK-ORANGE-1",
+      isRecommended: true
+    });
+    expect(ranked[0]?.score).toEqual(expect.any(Number));
+    expect(Number.isFinite(ranked[0]?.score)).toBe(true);
+  });
+
+  it("marks exactly one recommendation across multiple ranked candidates", () => {
+    const ranked = rankHistoricalProducts({
+      productName: "apple juice",
+      candidates: [
+        candidate("Apple Juice", "APPLE-1", { id: "apple-1" }),
+        candidate("Apple Juice", "APPLE-2", { id: "apple-2" }),
+        candidate("Fresh Apple Juice", "APPLE-3", { id: "apple-3" })
+      ],
+      inventoryEntries: []
+    });
+
+    expect(ranked.filter((item) => item.isRecommended)).toHaveLength(1);
+    expect(ranked[0]?.isRecommended).toBe(true);
+    expect(ranked.slice(1).every((item) => !item.isRecommended)).toBe(true);
+  });
+
+  it("propagates current inventory quantity for each ranked candidate", () => {
+    const ranked = rankHistoricalProducts({
+      productName: "apple juice",
+      candidates: [
+        candidate("Apple Juice", "APPLE-1", { id: "apple-1" }),
+        candidate("Apple Juice", "APPLE-2", { id: "apple-2" })
+      ],
+      inventoryEntries: [
+        { productName: "Apple Juice", quantity: 4, supplierProduct: { id: "apple-1" } },
+        { productName: "Apple Juice", quantity: 6, supplierProduct: { id: "apple-2" } },
+        { productName: "Apple Juice", quantity: 3 }
+      ]
+    });
+
+    expect(ranked).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "apple-1", currentInventoryQuantity: 7 }),
+        expect.objectContaining({ id: "apple-2", currentInventoryQuantity: 9 })
+      ])
+    );
+  });
+
+  it("uses stable ID as the final tie breaker", () => {
+    const ranked = rankHistoricalProducts({
+      productName: "apple juice",
+      candidates: [
+        candidate("Apple Juice", "APPLE-Z", {
+          id: "z-id",
+          latestPurchaseDate: "2026-01-01",
+          purchaseCount: 10
+        }),
+        candidate("Apple Juice", "APPLE-A", {
+          id: "a-id",
+          latestPurchaseDate: "2026-01-01",
+          purchaseCount: 10
+        })
+      ],
+      inventoryEntries: []
+    });
+
+    expect(ranked.map((item) => item.id)).toEqual(["a-id", "z-id"]);
+  });
+
   it("ranks exact historical product matches before frequent partial matches", () => {
     const ranked = rankHistoricalProducts({
       productName: "orange juice",
