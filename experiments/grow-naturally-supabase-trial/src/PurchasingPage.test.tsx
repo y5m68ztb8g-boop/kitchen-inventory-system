@@ -333,6 +333,155 @@ describe("PurchasingPage recognition and review", () => {
     expect(screen.getAllByText("待匹配")).toHaveLength(2);
   });
 
+  it("disables all review controls while savePendingIntake is pending and re-enables after resolve", async () => {
+    const user = userEvent.setup();
+    let resolveSavePending: (value: { status: string; intakeId: string; items: never[] }) => void;
+    savePendingIntake.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSavePending = resolve;
+        })
+    );
+
+    render(<PurchasingPage />);
+    const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
+
+    await user.upload(cameraInput, new File(["whiteboard"], "invoice.jpg", { type: "image/jpeg" }));
+    await user.click(screen.getByRole("button", { name: "开始识别" }));
+
+    await user.click(screen.getByRole("checkbox", { name: /已人工核对 1/ }));
+    const saveDraftButton = screen.getByRole("button", { name: "保存草稿" });
+    const handoffButton = screen.getByRole("button", { name: "转入采购清单" });
+    const addRowButton = screen.getByRole("button", { name: "新增一行" });
+    const departmentInput = screen.getByLabelText("部门 1");
+    const productInput = screen.getByLabelText("产品名称 1");
+    const quantityInput = screen.getByLabelText("数量 1");
+    const unitInput = screen.getByLabelText("单位 1");
+    const notesInput = screen.getByLabelText("备注 1");
+    const reviewCheck = screen.getByRole("checkbox", { name: /已人工核对 1/ });
+    const firstRow = screen.getByTestId("purchase-review-row-1");
+    const removeRowButton = within(firstRow).getByRole("button", { name: /删除第 1 行/ });
+    const matchButton = within(firstRow).getByRole("button", { name: /匹配发票商品/ });
+
+    await user.click(saveDraftButton);
+    expect(savePendingIntake).toHaveBeenCalledTimes(1);
+    expect(saveDraftButton).toHaveTextContent("保存中...");
+    expect(saveDraftButton).toBeDisabled();
+    expect(handoffButton).toBeDisabled();
+    expect(addRowButton).toBeDisabled();
+    expect(departmentInput).toBeDisabled();
+    expect(productInput).toBeDisabled();
+    expect(quantityInput).toBeDisabled();
+    expect(unitInput).toBeDisabled();
+    expect(notesInput).toBeDisabled();
+    expect(reviewCheck).toBeDisabled();
+    expect(matchButton).toBeDisabled();
+    expect(removeRowButton).toBeDisabled();
+
+    expect(screen.getAllByTestId(/purchase-review-row-/)).toHaveLength(2);
+    await user.click(addRowButton);
+    await user.click(removeRowButton);
+    await user.click(matchButton);
+    await user.click(saveDraftButton);
+    await user.click(handoffButton);
+    expect(savePendingIntake).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByTestId(/purchase-review-row-/)).toHaveLength(2);
+
+    expect(departmentInput).toHaveValue("厨房");
+    expect(productInput).toHaveValue("橙汁");
+    expect(quantityInput).toHaveValue(2);
+    expect(unitInput).toHaveValue("箱");
+    expect(notesInput).toHaveValue("");
+
+    resolveSavePending!({
+      status: "Pending",
+      intakeId: "intake-1",
+      items: []
+    });
+
+    expect(await screen.findByText("草稿已保存")).toBeInTheDocument();
+    expect(saveDraftButton).toHaveTextContent("保存草稿");
+    expect(saveDraftButton).not.toBeDisabled();
+    expect(handoffButton).not.toBeDisabled();
+    expect(addRowButton).not.toBeDisabled();
+    expect(departmentInput).not.toBeDisabled();
+    expect(reviewCheck).not.toBeDisabled();
+
+    await user.clear(departmentInput);
+    await user.type(departmentInput, "宴会");
+    expect(departmentInput).toHaveValue("宴会");
+  });
+
+  it("disables review controls while readyForPurchase is pending and locks terminally after resolve", async () => {
+    const user = userEvent.setup();
+    let resolveReady: (value: { status: string; intakeId: string }) => void;
+    readyForPurchase.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveReady = resolve;
+        })
+    );
+
+    render(<PurchasingPage />);
+    const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
+
+    await user.upload(cameraInput, new File(["whiteboard"], "invoice.jpg", { type: "image/jpeg" }));
+    await user.click(screen.getByRole("button", { name: "开始识别" }));
+
+    await user.click(screen.getByRole("checkbox", { name: /已人工核对 1/ }));
+    const saveDraftButton = screen.getByRole("button", { name: "保存草稿" });
+    const handoffButton = screen.getByRole("button", { name: "转入采购清单" });
+    const addRowButton = screen.getByRole("button", { name: "新增一行" });
+    const departmentInput = screen.getByLabelText("部门 1");
+    const productInput = screen.getByLabelText("产品名称 1");
+    const quantityInput = screen.getByLabelText("数量 1");
+    const unitInput = screen.getByLabelText("单位 1");
+    const notesInput = screen.getByLabelText("备注 1");
+    const reviewCheck = screen.getByRole("checkbox", { name: /已人工核对 1/ });
+    const firstRow = screen.getByTestId("purchase-review-row-1");
+    const removeRowButton = within(firstRow).getByRole("button", { name: /删除第 1 行/ });
+    const matchButton = within(firstRow).getByRole("button", { name: /匹配发票商品/ });
+
+    await user.click(handoffButton);
+    expect(readyForPurchase).toHaveBeenCalledTimes(1);
+    expect(handoffButton).toHaveTextContent("转入中...");
+    expect(handoffButton).toBeDisabled();
+    expect(saveDraftButton).toBeDisabled();
+    expect(addRowButton).toBeDisabled();
+    expect(departmentInput).toBeDisabled();
+    expect(productInput).toBeDisabled();
+    expect(quantityInput).toBeDisabled();
+    expect(unitInput).toBeDisabled();
+    expect(notesInput).toBeDisabled();
+    expect(reviewCheck).toBeDisabled();
+    expect(matchButton).toBeDisabled();
+    expect(removeRowButton).toBeDisabled();
+
+    expect(screen.getAllByTestId(/purchase-review-row-/)).toHaveLength(2);
+    await user.click(addRowButton);
+    await user.click(removeRowButton);
+    await user.click(matchButton);
+    await user.click(saveDraftButton);
+    await user.click(handoffButton);
+    await user.click(saveDraftButton);
+    expect(readyForPurchase).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByTestId(/purchase-review-row-/)).toHaveLength(2);
+
+    resolveReady!({
+      status: "ReadyForPurchase",
+      intakeId: "intake-1"
+    });
+
+    expect(await screen.findByText("已转入采购清单")).toBeInTheDocument();
+    expect(saveDraftButton).toBeDisabled();
+    expect(handoffButton).toBeDisabled();
+    expect(addRowButton).toBeDisabled();
+    expect(departmentInput).toBeDisabled();
+    expect(reviewCheck).toBeDisabled();
+    expect(matchButton).toBeDisabled();
+    expect(removeRowButton).toBeDisabled();
+  });
+
   it("locks review controls in terminal state after ready-for-purchase and prevents duplicate submit operations", async () => {
     const user = userEvent.setup();
     render(<PurchasingPage />);

@@ -84,6 +84,7 @@
   background: #245d35;
   border-color: #245d35;
   color: #fff;
+  min-height: 44px;
 }
 
 .purchasing-preview-state {

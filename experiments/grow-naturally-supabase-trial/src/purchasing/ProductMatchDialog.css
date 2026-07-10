@@ -77,6 +77,10 @@
   padding: 16px;
 }
 
+.product-match-card .purchasing-primary-action {
+  min-height: 44px;
+}
+
 .product-match-card-selected {
   border-color: #2f7040;
   box-shadow: inset 3px 0 #2f7040;

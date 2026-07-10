@@ -1,5 +1,5 @@
 import { Check, Search, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { searchHistoricalProducts } from "./api";
 import type { HistoricalProductCard } from "./types";
 import "./ProductMatchDialog.css";
@@ -8,16 +8,22 @@ type ProductMatchDialogProps = {
   itemName: string;
   onChoose: (product: HistoricalProductCard) => void;
   onClose: () => void;
+  returnFocusElement: HTMLElement | null;
   selectedProductId: string | null;
 };
 
 const priceFormatter = new Intl.NumberFormat("en-GB", { currency: "GBP", style: "currency" });
 
-export function ProductMatchDialog({ itemName, onChoose, onClose, selectedProductId }: ProductMatchDialogProps) {
+export function ProductMatchDialog({ itemName, onChoose, onClose, returnFocusElement, selectedProductId }: ProductMatchDialogProps) {
+  const dialogRef = useRef<HTMLElement>(null);
   const [query, setQuery] = useState(itemName);
   const [products, setProducts] = useState<HistoricalProductCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => returnFocusElement?.focus();
+  }, [returnFocusElement]);
 
   useEffect(() => {
     let active = true;
@@ -44,9 +50,33 @@ export function ProductMatchDialog({ itemName, onChoose, onClose, selectedProduc
     };
   }, [query]);
 
+  function handleDialogKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab" || !dialogRef.current) {
+      return;
+    }
+    const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), [href]')];
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!first || !last) {
+      return;
+    }
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   return (
     <div className="product-match-backdrop">
-      <section aria-label={`匹配发票商品 ${itemName}`} aria-modal="true" className="product-match-dialog" role="dialog">
+      <section aria-label={`匹配发票商品 ${itemName}`} aria-modal="true" className="product-match-dialog" onKeyDown={handleDialogKeyDown} ref={dialogRef} role="dialog">
         <header className="product-match-header">
           <div>
             <p>历史发票商品</p>
