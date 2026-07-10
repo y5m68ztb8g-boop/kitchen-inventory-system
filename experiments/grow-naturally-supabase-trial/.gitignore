@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+.playwright/
+playwright-report/
+test-results/
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js
+local-data/
+.env.local
