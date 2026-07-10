@@ -22,6 +22,12 @@ export type HistoricalInventoryEntry = {
 
 export type HistoricalProductRecommendation = HistoricalRecommendationFields;
 
+export type RankedHistoricalProduct = HistoricalProductCandidate &
+  HistoricalRecommendationFields & {
+    isRecommended: boolean;
+    score: number;
+  };
+
 export type HistoricalMatchInput = {
   candidates: HistoricalProductCandidate[];
   inventoryEntries: HistoricalInventoryEntry[];
@@ -58,10 +64,10 @@ export function normaliseProductName(value: string) {
     .join(" ");
 }
 
-export function recommendHistoricalProduct(input: HistoricalMatchInput): HistoricalProductRecommendation | null {
+export function rankHistoricalProducts(input: HistoricalMatchInput): RankedHistoricalProduct[] {
   const requestedName = normaliseProductName(input.productName);
   if (!requestedName) {
-    return null;
+    return [];
   }
 
   const semanticCandidates = input.candidates
@@ -72,7 +78,7 @@ export function recommendHistoricalProduct(input: HistoricalMatchInput): Histori
     .filter((entry) => entry.semanticScore >= 35);
 
   if (semanticCandidates.length === 0) {
-    return null;
+    return [];
   }
 
   const newestPurchaseTime = Math.max(
@@ -80,7 +86,17 @@ export function recommendHistoricalProduct(input: HistoricalMatchInput): Histori
   );
   const ranked = semanticCandidates
     .map(({ candidate, semanticScore }) => ({
-      candidate,
+      ...candidate,
+      currentInventoryQuantity: currentInventoryQuantity(candidate, input.inventoryEntries),
+      recommendedLastPrice: candidate.latestPrice,
+      recommendedLastPurchaseDate: candidate.latestPurchaseDate,
+      recommendedPackSize: candidate.packSize,
+      recommendedProductCode: candidate.supplierProductCode,
+      recommendedProductName: candidate.productName,
+      recommendedPurchaseCount: candidate.purchaseCount,
+      recommendedSupplierCode: candidate.supplierCode,
+      recommendedSupplierName: candidate.supplierName,
+      recommendedSupplierProductId: candidate.id,
       score:
         semanticScore +
         frequencyBonus(candidate.purchaseCount) +
@@ -91,23 +107,34 @@ export function recommendHistoricalProduct(input: HistoricalMatchInput): Histori
       (left, right) =>
         right.score - left.score ||
         right.semanticScore - left.semanticScore ||
-        right.candidate.purchaseCount - left.candidate.purchaseCount ||
-        parseDate(right.candidate.latestPurchaseDate) - parseDate(left.candidate.latestPurchaseDate) ||
-        left.candidate.id.localeCompare(right.candidate.id)
+        right.purchaseCount - left.purchaseCount ||
+        parseDate(right.latestPurchaseDate) - parseDate(left.latestPurchaseDate) ||
+        left.id.localeCompare(right.id)
     );
 
-  const candidate = ranked[0].candidate;
+  return ranked.map(({ semanticScore, ...candidate }, index) => ({
+    ...candidate,
+    isRecommended: index === 0
+  }));
+}
+
+export function recommendHistoricalProduct(input: HistoricalMatchInput): HistoricalProductRecommendation | null {
+  const [candidate] = rankHistoricalProducts(input);
+  return candidate ? recommendationFromRankedCandidate(candidate) : null;
+}
+
+function recommendationFromRankedCandidate(candidate: RankedHistoricalProduct): HistoricalProductRecommendation {
   return {
-    currentInventoryQuantity: currentInventoryQuantity(candidate, input.inventoryEntries),
-    recommendedLastPrice: candidate.latestPrice,
-    recommendedLastPurchaseDate: candidate.latestPurchaseDate,
-    recommendedPackSize: candidate.packSize,
-    recommendedProductCode: candidate.supplierProductCode,
-    recommendedProductName: candidate.productName,
-    recommendedPurchaseCount: candidate.purchaseCount,
-    recommendedSupplierCode: candidate.supplierCode,
-    recommendedSupplierName: candidate.supplierName,
-    recommendedSupplierProductId: candidate.id
+    currentInventoryQuantity: candidate.currentInventoryQuantity,
+    recommendedLastPrice: candidate.recommendedLastPrice,
+    recommendedLastPurchaseDate: candidate.recommendedLastPurchaseDate,
+    recommendedPackSize: candidate.recommendedPackSize,
+    recommendedProductCode: candidate.recommendedProductCode,
+    recommendedProductName: candidate.recommendedProductName,
+    recommendedPurchaseCount: candidate.recommendedPurchaseCount,
+    recommendedSupplierCode: candidate.recommendedSupplierCode,
+    recommendedSupplierName: candidate.recommendedSupplierName,
+    recommendedSupplierProductId: candidate.recommendedSupplierProductId
   };
 }
 

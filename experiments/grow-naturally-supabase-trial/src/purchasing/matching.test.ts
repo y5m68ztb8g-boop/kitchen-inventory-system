@@ -2,7 +2,11 @@
 
 import { describe, expect, it } from "vitest";
 import { buildCurrentInventoryEntries } from "../../server/purchasing/currentInventory";
-import { normaliseProductName, recommendHistoricalProduct } from "../../server/purchasing/matching";
+import {
+  normaliseProductName,
+  rankHistoricalProducts,
+  recommendHistoricalProduct
+} from "../../server/purchasing/matching";
 
 function candidate(
   productName: string,
@@ -174,6 +178,42 @@ describe("recommendHistoricalProduct", () => {
     });
 
     expect(result?.currentInventoryQuantity).toBe(4);
+  });
+});
+
+describe("rankHistoricalProducts", () => {
+  it("ranks exact historical product matches before frequent partial matches", () => {
+    const ranked = rankHistoricalProducts({
+      productName: "orange juice",
+      candidates: [
+        candidate("Fresh Orange Juice", "FRESH-ORANGE", { purchaseCount: 30 }),
+        candidate("Orange Juice", "ORANGE-JUICE", { purchaseCount: 2 })
+      ],
+      inventoryEntries: []
+    });
+
+    expect(ranked[0]).toMatchObject({ productName: "Orange Juice", isRecommended: true });
+  });
+
+  it("uses purchase count and recency to break equally relevant matches", () => {
+    const ranked = rankHistoricalProducts({
+      productName: "apple juice",
+      candidates: [
+        candidate("Apple Juice", "RECENT-FREQUENT", {
+          id: "recent-frequent",
+          latestPurchaseDate: "2026-07-01",
+          purchaseCount: 10
+        }),
+        candidate("Apple Juice", "OLD-RARE", {
+          id: "old-rare",
+          latestPurchaseDate: "2020-01-01",
+          purchaseCount: 1
+        })
+      ],
+      inventoryEntries: []
+    });
+
+    expect(ranked.map((item) => item.id)).toEqual(["recent-frequent", "old-rare"]);
   });
 });
 
