@@ -92,6 +92,7 @@ test.describe("purchasing whiteboard flow", () => {
 
     await expect(page.getByRole("heading", { name: "采购项目已保存" })).toBeVisible();
     await expect(page.getByText("Pending", { exact: true })).toBeVisible();
+    await expect(page.locator(".purchase-recommendation-fields").getByText("Chicken Breast", { exact: true })).toBeVisible();
     await expect(page.getByText("Brakes", { exact: true })).toBeVisible();
     await expect(page.getByText("BRK", { exact: true })).toBeVisible();
     await expect(page.getByText("CHICKEN-1", { exact: true })).toBeVisible();

@@ -1,59 +1,24 @@
 # Task 6 Report: Whiteboard Purchasing Verification
 
-## Scope
+## Coverage
 
-- Preserved `e2e/purchasing.spec.ts`, which provides the requested 390 x 844 mobile purchasing flow.
-- No production changes were needed: the completed Tasks 1-5 implementation satisfied the E2E flow without a defect-driven fix.
+`e2e/purchasing.spec.ts` verifies the purchasing flow at 390 x 844: it opens `采购`, previews a selected PNG before recognition, receives mocked uncertain scan data, verifies the low-confidence row class, edits and manually reviews the row, confirms it, and verifies the saved `Pending` recommendation.
 
-## Purchasing E2E Coverage
+The saved recommendation assertions cover historical product name `Chicken Breast`, supplier `Brakes`, supplier code `BRK`, product code `CHICKEN-1`, pack size `2x5kg`, last price `£24.50`, purchase count `10`, date `2026-07-01`, and current inventory `7`. The test checks no horizontal overflow after the preview, review, and saved states.
 
-`e2e/purchasing.spec.ts` verifies that a user can:
+`src/purchasing/routes.test.ts` exercises the real scan route and `prepareWhiteboardImage`. It injects `recogniseWhiteboard` with an explicitly empty API key, so it makes no OpenAI request and reads or prints no real secret. The route returns the Chinese `MISSING_API_KEY` response for a valid PNG, `UNSUPPORTED_IMAGE_FORMAT` for text image content, and `IMAGE_TOO_LARGE` for an upload larger than 15 MB.
 
-- Open `采购` at a 390 x 844 viewport.
-- Choose a PNG and see its preview before recognition is requested.
-- Receive mocked scan data with an uncertain item.
-- Edit the product name, complete the required manual-review checkbox, and submit the confirmation request.
-- Receive a mocked confirmation response and see `Pending` plus the supplier recommendation.
-- Keep `document.documentElement.scrollWidth <= window.innerWidth`.
+## Final Verification
 
-Focused result: `pnpm exec playwright test e2e/purchasing.spec.ts --project=mobile --workers=1 --reporter=line` passed (1/1).
-
-## Endpoint Smoke Checks
-
-Started Vite on `127.0.0.1:5183` with `OPENAI_API_KEY` explicitly set to an empty value; no secret value was read or printed.
-
-- Valid generated PNG returned `MISSING_API_KEY`.
-- Text bytes submitted as `image/jpeg` returned `UNSUPPORTED_IMAGE_FORMAT`.
-- A 15 MB plus one byte upload returned `IMAGE_TOO_LARGE`.
-
-## Browser Checks
-
-Used the in-app browser at 390 x 844 and 1440 x 900.
-
-- Purchasing camera/upload controls render on both viewports with no horizontal overflow.
-- Home, freezer, and dry-store pages render at both viewports with no horizontal overflow.
-- The focused E2E flow covers the preview, low-confidence review, editable fields, saved recommendation, and confirmation states.
-
-## Verification
-
-- `pnpm test`: passed, 106 tests across 6 files.
+- `pnpm exec vitest run src/purchasing/routes.test.ts`: passed, 13/13 tests.
+- `pnpm test:e2e:purchasing`: passed, 2/2 tests across desktop and mobile projects.
+- `pnpm test`: passed, 106/106 tests across 6 files.
 - `pnpm build`: passed.
-- Focused purchasing E2E: passed, 1/1 mobile test.
 
-## Existing Regression Concern
+## Legacy E2E Concern
 
-The requested script `pnpm test:e2e -- e2e/purchasing.spec.ts` is interpreted by the current package script as the full E2E suite, not a focused file selection. Existing `e2e/home.spec.ts` assertions fail before any Task 6 change, including missing `未来功能预留`, home search inventory, and freezer product-code expectations. These are unrelated inventory regressions and were not modified under this task's scope.
+`pnpm test:e2e -- e2e/purchasing.spec.ts` is parsed by the existing package script as the full 22-test E2E suite. It has unrelated failures in `e2e/home.spec.ts` for the future-feature label, home-search inventory location, and freezer product-code display. Purchasing tests were not the reported failures, and inventory/UI code was not changed.
 
-## Review Fixes
+## Re-review Fix
 
-- Added a real HTTP route smoke test in `src/purchasing/routes.test.ts`. It injects `recogniseWhiteboard` with an explicitly empty API key and uses `prepareWhiteboardImage`, so no OpenAI request or environment secret access occurs. The scan route returns `MISSING_API_KEY` with the Chinese message for a valid PNG, `UNSUPPORTED_IMAGE_FORMAT` for text image content, and `IMAGE_TOO_LARGE` for a file exceeding 15 MB.
-- Added `test:e2e:purchasing` to `package.json` for the focused Playwright specification.
-- Expanded the purchasing E2E flow to assert the low-confidence row class, all requested recommendation values, and no horizontal overflow after preview, review, and saved states.
-
-## Review Verification
-
-- `pnpm exec vitest run src/purchasing/routes.test.ts`: passed, 13 tests.
-- `pnpm test:e2e:purchasing`: passed, 2 tests (desktop and mobile projects).
-- `pnpm test`: passed, 106 tests across 6 files.
-- `pnpm build`: passed.
-- `pnpm test:e2e -- e2e/purchasing.spec.ts`: the existing script still invokes all 22 E2E tests. It failed in unrelated `e2e/home.spec.ts` cases: home module future-feature label, home search inventory location, and freezer product-code display. Purchasing tests were not the reported failures.
+Added a focused assertion for the saved recommended historical product name, scoped to the recommendation details list. Re-ran the focused purchasing E2E and route Vitest coverage; the results are recorded above.
