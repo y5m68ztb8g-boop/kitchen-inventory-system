@@ -1742,7 +1742,7 @@ button.home-module:focus-visible,
   }
 
   .home-shell-search-open .home-grid {
-    display: block;
+    display: contents;
     width: 100%;
   }
 
@@ -1752,9 +1752,14 @@ button.home-module:focus-visible,
 
   .home-shell-search-open .home-module-search-open {
     aspect-ratio: auto;
+    background: #fbfbfd;
     min-height: 230px;
     overflow: visible;
+    position: sticky;
+    top: 0;
     width: 100%;
+    z-index: 20;
+    box-shadow: 0 12px 24px rgba(15, 23, 42, 0.1);
   }
 
   .home-shell-search-open .home-module-search-open > .module-icon {

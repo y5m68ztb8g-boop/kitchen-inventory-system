@@ -76,6 +76,43 @@ test("mobile search is full screen, reusable and explicitly closable", async ({ 
   expect(mobileLayout.freezerGridTracks).toHaveLength(3);
   expect(mobileLayout.freezerGridTracks).toEqual([76, 118, 118]);
 
+  const readFreezerMapStructure = async () =>
+    page.evaluate(() => {
+      const map = document.querySelector<HTMLElement>(".result-freezer-mini-map");
+
+      if (!map) {
+        throw new Error("Expected freezer map structure to be rendered.");
+      }
+
+      const mapStyle = window.getComputedStyle(map);
+      const areaMatrix = Array.from(mapStyle.gridTemplateAreas.matchAll(/"([^"]+)"/g)).map((match) =>
+        match[1].trim().split(/\s+/)
+      );
+
+      return {
+        gridTemplateAreas: mapStyle.gridTemplateAreas,
+        areaMatrix,
+        columnTrackCount: mapStyle.gridTemplateColumns.trim().split(/\s+/).length,
+        rowTrackCount: mapStyle.gridTemplateRows.trim().split(/\s+/).length
+      };
+    });
+
+  const freezerMapBeforeViewportChange = await readFreezerMapStructure();
+  await page.setViewportSize({ width: 700, height: 844 });
+  await expect
+    .poll(() => page.evaluate(() => window.matchMedia("(max-width: 560px)").matches))
+    .toBe(false);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect
+    .poll(() => page.evaluate(() => window.matchMedia("(max-width: 560px)").matches))
+    .toBe(true);
+  await expect(page.getByLabel("A1当前位置")).toBeVisible();
+  const freezerMapAfterViewportChange = await readFreezerMapStructure();
+
+  expect(freezerMapAfterViewportChange).toEqual(freezerMapBeforeViewportChange);
+
+  await page.setViewportSize({ width: 390, height: 500 });
+  await expect.poll(() => page.evaluate(() => window.innerHeight)).toBe(500);
   await page.getByPlaceholder("搜索发票商品 / code").fill("F135-177");
   await expect(page.getByRole("button", { name: "复制 135177" })).toBeVisible();
 
@@ -89,6 +126,57 @@ test("mobile search is full screen, reusable and explicitly closable", async ({ 
       { message: "Invoice results should not overflow the mobile viewport.", timeout: 3000 }
     )
     .toEqual({ bodyFitsViewport: true, documentFitsViewport: true });
+
+  const searchOverlay = page.locator(".home-shell-search-open");
+  const invoiceResult = page.locator(".invoice-history-card").first();
+  await invoiceResult.scrollIntoViewIfNeeded();
+  await searchOverlay.evaluate((overlay) => {
+    overlay.scrollTop = overlay.scrollHeight;
+  });
+  await expect.poll(() => searchOverlay.evaluate((overlay) => overlay.scrollTop)).toBeGreaterThan(0);
+
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const selectors = [
+            ".mobile-search-title",
+            ".mobile-search-close",
+            "#home-invoice-search",
+            "#home-product-search"
+          ];
+          const elements = selectors.map((selector) => document.querySelector<HTMLElement>(selector));
+          const overlay = document.querySelector<HTMLElement>(".home-shell-search-open");
+
+          if (elements.some((element) => !element) || !overlay) {
+            throw new Error("Expected mobile search controls were not rendered.");
+          }
+
+          const viewport = { height: window.innerHeight, width: window.innerWidth };
+          const controlsInViewport = elements.every((element) => {
+            const rect = element!.getBoundingClientRect();
+            return rect.left >= 0 && rect.right <= viewport.width && rect.top >= 0 && rect.bottom <= viewport.height;
+          });
+          const controlsAreTopmost = elements.every((element) => {
+            const rect = element!.getBoundingClientRect();
+            const hit = document.elementFromPoint((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2);
+            return hit === element || element!.contains(hit);
+          });
+
+          return {
+            controlsAreTopmost,
+            controlsInViewport,
+            overlayScrollTop: overlay.scrollTop
+          };
+        }),
+      { message: "Mobile search controls should remain visible above scrolled invoice results.", timeout: 3000 }
+    )
+    .toMatchObject({ controlsAreTopmost: true, controlsInViewport: true });
+
+  await expect(page.getByRole("heading", { name: "搜索" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "关闭搜索" })).toBeVisible();
+  await expect(page.getByPlaceholder("搜索发票商品 / code")).toBeVisible();
+  await expect(page.getByPlaceholder("输入产品名称")).toBeVisible();
 
   const invoiceLayout = await page.evaluate(() => {
     const codeRow = document.querySelector<HTMLElement>(".invoice-code-row");
