@@ -14,7 +14,11 @@ import { recommendHistoricalProduct, type HistoricalInventoryEntry, type Histori
 import { readMultipartImage } from "./multipart";
 import { recogniseWhiteboard, type WhiteboardImageForRecognition } from "./openaiWhiteboard";
 
-type RouteHandler = (request: IncomingMessage, response: ServerResponse) => void | Promise<void>;
+type RouteHandler = (
+  request: IncomingMessage,
+  response: ServerResponse,
+  next: (error?: unknown) => void
+) => void | Promise<void>;
 
 type PurchasingMiddlewareServer = {
   middlewares: {
@@ -54,10 +58,15 @@ export function installPurchasingRoutes(server: PurchasingMiddlewareServer, opti
   const historicalCandidates = options.historicalCandidates ?? (() => []);
   const historicalInventoryEntries = options.historicalInventoryEntries ?? (() => []);
 
-  server.middlewares.use(async (request, response) => {
+  server.middlewares.use(async (request, response, next) => {
     try {
       const url = new URL(request.url || "/", "http://localhost");
       const pathname = url.pathname;
+
+      if (pathname !== "/api/purchasing" && !pathname.startsWith("/api/purchasing/")) {
+        next();
+        return;
+      }
 
       if (pathname === "/api/purchasing/scan-whiteboard") {
         if (request.method !== "POST") {

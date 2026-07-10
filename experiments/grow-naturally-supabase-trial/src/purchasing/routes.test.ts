@@ -164,15 +164,19 @@ describe("readMultipartImage", () => {
   });
 });
 
-type RouteHandler = (request: IncomingMessage, response: ServerResponse) => void | Promise<void>;
+type RouteHandler = (
+  request: IncomingMessage,
+  response: ServerResponse,
+  next: () => void
+) => void | Promise<void>;
 
 function createTestServer(options: PurchasingRouteOptions) {
   let handler: RouteHandler | undefined;
   installPurchasingRoutes(
     {
       middlewares: {
-        use(next: RouteHandler) {
-          handler = next;
+        use(next) {
+          handler = next as RouteHandler;
         }
       }
     },
@@ -185,7 +189,11 @@ function createTestServer(options: PurchasingRouteOptions) {
       response.end();
       return;
     }
-    void handler(request, response);
+    void handler(request, response, () => {
+      response.statusCode = 204;
+      response.setHeader("X-Existing-Middleware", "reached");
+      response.end();
+    });
   });
 }
 
@@ -254,6 +262,15 @@ function uploadBody() {
 }
 
 describe("purchasing API routes", () => {
+  it("passes unrelated paths through to existing middleware", async () => {
+    const { baseUrl } = routeOptions();
+
+    const response = await fetch(`${await baseUrl}/api/inventory-db`);
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("x-existing-middleware")).toBe("reached");
+  });
+
   it("saves a recognised draft, serves its image, and confirms reviewed rows", async () => {
     const { baseUrl, database } = routeOptions();
     const upload = uploadBody();
