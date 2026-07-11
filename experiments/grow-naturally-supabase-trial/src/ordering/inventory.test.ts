@@ -28,14 +28,14 @@ describe("ordering inventory snapshots", () => {
   it("converts full and loose packages into equivalent supplier packs", () => {
     const snapshot = buildOrderingInventorySnapshot(baseInventoryDb as unknown as Record<string, unknown>[], []);
 
-    expect(snapshot.get("BRK-100243")?.totalEquivalentQuantity).toBe(1.5);
+    expect(snapshot.get("BRK-100243")?.totalEquivalentQuantity).toBe(2.5);
   });
 
   it("keeps every location for one matched supplier product", () => {
     const snapshot = buildOrderingInventorySnapshot(baseInventoryDb as unknown as Record<string, unknown>[], []);
     expect(snapshot.get("BRK-100243")?.locations).toEqual([
-      expect.objectContaining({ warehouse: "freezer", locationCode: "A1" }),
-      expect.objectContaining({ warehouse: "dry-store", locationCode: "C0" })
+      expect.objectContaining({ warehouse: "freezer", locationCode: "A1", equivalentQuantity: 1.5 }),
+      expect.objectContaining({ warehouse: "dry-store", locationCode: "C0", equivalentQuantity: 1 })
     ]);
   });
 
