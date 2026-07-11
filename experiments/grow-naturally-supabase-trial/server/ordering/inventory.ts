@@ -34,9 +34,12 @@ export function buildOrderingInventorySnapshot(
   baselineFreezerInventory: readonly BaselineFreezerInventoryItem[] = FREEZER_INVENTORY
 ) {
   const database = isRecord(inventoryDatabase) ? inventoryDatabase : {};
-  const persistedEntries = Array.isArray(inventoryDatabase)
+  const isFlatInventoryInput = Array.isArray(inventoryDatabase);
+  const freezerEntries = isFlatInventoryInput ? [] : asArray(database.freezer);
+  const dryStoreEntries = isFlatInventoryInput ? [] : asArray(database.dryStore);
+  const persistedEntries = isFlatInventoryInput
     ? inventoryDatabase
-    : [...asArray(database.freezer), ...asArray(database.dryStore)];
+    : [...freezerEntries, ...dryStoreEntries];
   const representedSourceIds = new Set(
     persistedEntries.flatMap((entry) => {
       const sourceItemId = readString(entry, "sourceItemId");
@@ -46,7 +49,13 @@ export function buildOrderingInventorySnapshot(
   const deletedSourceIds = new Set(asArray(database.deletedFreezerInventoryIds).filter(isString));
   const nameOverrides = isRecord(database.freezerSourceNameOverrides) ? database.freezerSourceNameOverrides : {};
   const entries = [
-    ...persistedEntries.map((entry) => normalizeSnapshotEntry(entry, inferWarehouse(entry))).filter(isSnapshotEntry),
+    ...(isFlatInventoryInput
+      ? persistedEntries.map((entry) => normalizeSnapshotEntry(entry, inferWarehouse(entry)))
+      : [
+          ...freezerEntries.map((entry) => normalizeSnapshotEntry(entry, "freezer", false)),
+          ...dryStoreEntries.map((entry) => normalizeSnapshotEntry(entry, "dry-store", false))
+        ]
+    ).filter(isSnapshotEntry),
     ...baselineFreezerInventory
       .filter((entry) => {
         const id = readString(entry, "id");
@@ -115,12 +124,16 @@ export function inventoryDeepLink(
   return "#" + target.warehouse + "?" + params.toString();
 }
 
-function normalizeSnapshotEntry(value: unknown, fallbackWarehouse: "freezer" | "dry-store"): SnapshotEntry | null {
+function normalizeSnapshotEntry(
+  value: unknown,
+  fallbackWarehouse: "freezer" | "dry-store",
+  allowEntryWarehouse = true
+): SnapshotEntry | null {
   if (!isRecord(value)) return null;
   const supplierProduct = isRecord(value.supplierProduct) ? value.supplierProduct : {};
   const supplierProductId = readString(value, "supplierProductId") || readString(supplierProduct, "id");
   const catalogueProduct = supplierProductId ? SUPPLIER_CATALOGUE.find((product) => product.id === supplierProductId) : undefined;
-  const warehouse = readWarehouse(value, "warehouse") || fallbackWarehouse;
+  const warehouse = allowEntryWarehouse ? readWarehouse(value, "warehouse") || fallbackWarehouse : fallbackWarehouse;
   const quantity = readNumber(value, "quantity") ?? readNumber(value, "fullPackageCount") ?? 0;
   const locationCode = readString(value, "locationCode");
   const productName = readString(value, "productName") || catalogueProduct?.productName || "";

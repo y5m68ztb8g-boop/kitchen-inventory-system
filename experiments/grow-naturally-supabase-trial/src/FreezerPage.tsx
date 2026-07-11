@@ -579,10 +579,16 @@ export function FreezerPage({
   function renderPendingInventory(item: FreezerInventoryItem) {
     const matchOpen = activeMatchItemId === item.id;
     const deleteKey = `source:${item.id}`;
+    const deepLinked = isDeepLinkedPendingInventory(item, supplierProductId, initialLocation);
 
     return (
       <Fragment key={item.id}>
-        <article className="inventory-table-row" key={item.id} role="row">
+        <article
+          aria-current={deepLinked ? "true" : undefined}
+          className={"inventory-table-row" + (deepLinked ? " inventory-table-row-highlighted" : "")}
+          key={item.id}
+          role="row"
+        >
           <span className="inventory-product-cell" role="cell">
             {renderProductNameControl(deleteKey, item.productName)}
             <small className="product-subtitle">
@@ -887,6 +893,23 @@ function getTableRowLocationCode(row: InventoryTableRow) {
 
 function isDeepLinkedEntry(entry: InventoryEntry, supplierProductId?: string | null, locationCode?: string | null) {
   return Boolean(supplierProductId && locationCode && entry.supplierProduct.id === supplierProductId && entry.locationCode === locationCode);
+}
+
+function isDeepLinkedPendingInventory(
+  item: FreezerInventoryItem,
+  supplierProductId?: string | null,
+  locationCode?: string | null
+) {
+  const itemSupplierProductId =
+    item.suggestedSupplierCode && item.suggestedSupplierProductCode
+      ? `${item.suggestedSupplierCode}-${item.suggestedSupplierProductCode}`
+      : "";
+  return Boolean(
+    supplierProductId &&
+      locationCode &&
+      itemSupplierProductId === supplierProductId &&
+      item.locationCode === locationCode
+  );
 }
 
 function compareInventoryRows(left: InventoryTableRow, right: InventoryTableRow, locationFilter: string) {
