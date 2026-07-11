@@ -24,6 +24,7 @@ import {
   updateBatchItem
 } from "./database";
 import { inventoryDeepLink, type OrderingInventorySnapshot } from "./inventory";
+import { buildRetryQueue } from "./brakesQuickAdd";
 import type { BrakesQuickAddRunner, PurchaseBatch, PurchaseBatchItem, SupplierGroup } from "./types";
 
 type RouteHandler = (
@@ -245,11 +246,17 @@ export function installOrderingRoutes(server: OrderingMiddlewareServer, options:
           return;
         }
         if (prepared.kind !== "brakes-ready" || !quickAdd) throw new PurchasingApiError("INVALID_ORDERING_DATA");
-        for (const item of prepared.items) {
+        const queue = buildRetryQueue(brakesItems.map((item) => ({
+          itemId: item.id,
+          productCode: item.supplierProductCode || "",
+          quantity: item.orderQuantity,
+          brakesStatus: item.brakesStatus
+        })));
+        for (const item of queue) {
           if (!item.productCode.trim()) throw new PurchasingApiError("INVALID_ORDERING_DATA");
           if (!Number.isFinite(item.quantity) || item.quantity <= 0) throw new PurchasingApiError("INVALID_ORDER_QUANTITY");
         }
-        const results = await quickAdd.fill(prepared.items);
+        const results = queue.length > 0 ? await quickAdd.fill(queue) : [];
         const saved = saveBrakesQuickAddResults(options.database, { batchId, results });
         sendJson(response, 200, { batch: await enrichBatch(saved, await orderingInventory()), results });
         return;

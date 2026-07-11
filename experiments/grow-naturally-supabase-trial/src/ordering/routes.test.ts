@@ -702,6 +702,78 @@ describe("ordering routes", () => {
     expect(saved.status).toBe("Draft");
   });
 
+  it("excludes already Added Brakes items from Quick Add retries and preserves their status", async () => {
+    const database = createPurchasingDatabase(":memory:");
+    const batchId = getOrCreateDraftBatch(database).id;
+    saveBatchPo(database, batchId, "PO-RETRY-ADDED");
+    addBatchItem(database, {
+      batchId,
+      productName: "Already added Brakes item",
+      supplierGroup: "BRK",
+      supplierProductId: "BRK-ADDED",
+      supplierProductCode: "ADDED-100",
+      supplierName: "Brakes",
+      packSize: "case",
+      orderQuantity: 2,
+      orderUnit: "case",
+      lastPrice: null,
+      purchaseCount: null,
+      latestPurchaseDate: null
+    });
+    const batch = addBatchItem(database, {
+      batchId,
+      productName: "Failed Brakes item",
+      supplierGroup: "BRK",
+      supplierProductId: "BRK-FAILED",
+      supplierProductCode: "FAILED-200",
+      supplierName: "Brakes",
+      packSize: "case",
+      orderQuantity: 3,
+      orderUnit: "case",
+      lastPrice: null,
+      purchaseCount: null,
+      latestPurchaseDate: null
+    });
+    const addedItem = batch.items.find((item) => item.supplierProductId === "BRK-ADDED")!;
+    const failedItem = batch.items.find((item) => item.supplierProductId === "BRK-FAILED")!;
+    saveBrakesQuickAddResults(database, {
+      batchId,
+      results: [
+        { itemId: addedItem.id, status: "Added", message: null },
+        { itemId: failedItem.id, status: "Failed", message: "temporary failure" }
+      ]
+    });
+
+    const fill = vi.fn().mockResolvedValue([
+      { itemId: failedItem.id, status: "Added", message: null }
+    ]);
+    const server = await createTestServer({
+      database,
+      brakesQuickAddRunner: { fill },
+      historicalCandidates: () => orderingTask3Candidates,
+      orderingInventory: () => new Map([
+        ["BRK-ADDED", { supplierProductId: "BRK-ADDED", totalEquivalentQuantity: 1, locations: [] }],
+        ["BRK-FAILED", { supplierProductId: "BRK-FAILED", totalEquivalentQuantity: 1, locations: [] }]
+      ])
+    });
+    const baseUrl = await startServer(server);
+
+    const response = await requestJson(`${baseUrl}/api/ordering/batches/${batchId}/suppliers/BRK/quick-add`, { method: "POST" });
+
+    expect(response.response.status).toBe(200);
+    expect(fill).toHaveBeenCalledTimes(1);
+    expect(fill).toHaveBeenCalledWith([
+      { itemId: failedItem.id, productCode: "FAILED-200", quantity: 3 }
+    ]);
+    expect(fill.mock.calls[0][0]).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ itemId: addedItem.id })])
+    );
+    expect(getBatchDetail(database, batchId).items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: addedItem.id, brakesStatus: "Added" }),
+      expect.objectContaining({ id: failedItem.id, brakesStatus: "Added" })
+    ]));
+  });
+
   it("blocks Quick Add on high stock before invoking the fake runner", async () => {
     const database = createPurchasingDatabase(":memory:");
     const batchId = getOrCreateDraftBatch(database).id;
