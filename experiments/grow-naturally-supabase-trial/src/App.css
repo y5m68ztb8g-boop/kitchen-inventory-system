@@ -50,8 +50,8 @@ button {
 .home-grid {
   display: grid;
   gap: 22px;
-  grid-template-columns: repeat(2, minmax(190px, 260px));
-  width: min(100%, 542px);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  width: min(100%, 840px);
 }
 
 .area-module-wrap {

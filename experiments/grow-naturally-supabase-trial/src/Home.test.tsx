@@ -116,13 +116,15 @@ describe("Home", () => {
     expect(getCopy("en-GB").home.totalValue).toBe("Total Inventory Value");
   });
 
-  it("shows the initial four module positions", () => {
+  it("shows the five home modules including the ordering entry", () => {
     render(<Home />);
 
     expect(screen.getByRole("button", { name: /搜索/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /区域/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "AI录入" })).toHaveAttribute("href", "#purchasing");
     expect(screen.getByRole("link", { name: "AI录入" }).querySelector("svg")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "下单" })).toHaveAttribute("href", "#ordering");
+    expect(screen.getByRole("link", { name: "下单" }).querySelector("svg")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /产品库存总金额/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "冷冻库金额" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "冷藏库金额" })).toBeInTheDocument();

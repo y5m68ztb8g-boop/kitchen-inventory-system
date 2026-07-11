@@ -1,6 +1,7 @@
 import { Camera, Eye, FileSpreadsheet, FileText, Plus, Trash2, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import "./PurchasingPage.css";
+import { importReadyIntake } from "./ordering/api";
 import { parseIntake, readyForPurchase, savePendingIntake } from "./purchasing/api";
 import { ProductMatchDialog } from "./purchasing/ProductMatchDialog";
 import type {
@@ -94,6 +95,7 @@ export function PurchasingPage() {
   const [state, setState] = useState<PageState>({ kind: "hub" });
   const [matchingClientId, setMatchingClientId] = useState<string | null>(null);
   const [showSource, setShowSource] = useState(false);
+  const [importingToOrder, setImportingToOrder] = useState(false);
   const previewUrl = state.kind === "preview" || state.kind === "recognising" ? state.previewUrl : null;
 
   useEffect(() => {
@@ -306,6 +308,21 @@ export function PurchasingPage() {
     }
   }
 
+  async function moveToOrdering() {
+    if (state.kind !== "review" || !state.handedOff || importingToOrder) return;
+    setImportingToOrder(true);
+    try {
+      await importReadyIntake(state.intake.intakeId);
+      window.location.hash = "#ordering";
+    } catch (error) {
+      setState({
+        ...state,
+        message: error instanceof Error ? error.message : "转入下单模块失败，请稍后重试。"
+      });
+      setImportingToOrder(false);
+    }
+  }
+
   const matchingItem =
     state.kind === "review" && !state.handedOff && state.action === "idle"
       ? state.items.find((item) => item.clientId === matchingClientId) ?? null
@@ -426,6 +443,11 @@ export function PurchasingPage() {
               <button disabled={state.handedOff || state.action !== "idle"} onClick={addItem} type="button"><Plus aria-hidden="true" size={18} />新增一行</button>
               <button disabled={state.handedOff || state.action !== "idle" || requiresManualReview || state.items.length === 0} onClick={() => void saveDraft()} type="button">{state.action === "saving" ? "保存中..." : "保存草稿"}</button>
               <button className="purchasing-primary-action" disabled={state.handedOff || state.action !== "idle" || requiresManualReview || state.items.length === 0} onClick={() => void handOff()} type="button">{state.action === "handing-off" ? "转入中..." : "转入采购清单"}</button>
+              {state.handedOff && (
+                <button className="purchasing-primary-action" disabled={importingToOrder} onClick={() => void moveToOrdering()} type="button">
+                  {importingToOrder ? "正在转入..." : "转入下单模块"}
+                </button>
+              )}
             </div>
           </section>
         )}

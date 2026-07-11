@@ -1,0 +1,150 @@
+.ordering-page {
+  background: #f7f8f6;
+  color: #202421;
+  min-height: 100vh;
+  padding: 28px clamp(16px, 4vw, 52px) 60px;
+}
+
+.ordering-page-header,
+.ordering-toolbar,
+.ordering-group > header,
+.ordering-dialog header,
+.ordering-dialog-actions,
+.inventory-review-actions {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.ordering-page-header { margin: 0 auto 24px; max-width: 1180px; }
+.ordering-page-header a { color: #526057; font-size: 14px; }
+.ordering-page-header p,
+.ordering-dialog header p { color: #68746c; font-size: 13px; margin: 18px 0 3px; }
+.ordering-page-header h1 { font-size: 36px; letter-spacing: 0; margin: 0; }
+
+.ordering-icon-button {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #ced6d0;
+  border-radius: 7px;
+  display: inline-flex;
+  height: 40px;
+  justify-content: center;
+  width: 40px;
+}
+
+.ordering-alert,
+.ready-intakes,
+.ordering-toolbar,
+.ordering-groups { margin-left: auto; margin-right: auto; max-width: 1180px; }
+.ordering-alert { background: #fff7df; border-left: 3px solid #d49a16; padding: 12px 14px; }
+
+.ordering-toolbar {
+  background: #fff;
+  border-bottom: 1px solid #dbe1dc;
+  border-top: 1px solid #dbe1dc;
+  gap: 18px;
+  padding: 18px 0;
+}
+
+.ordering-toolbar label { display: grid; flex: 1; gap: 6px; max-width: 520px; }
+.ordering-toolbar label span,
+.ordering-item label span,
+.ordering-dialog label span { color: #657168; font-size: 13px; }
+.ordering-toolbar input,
+.ordering-item input,
+.ordering-dialog input,
+.ordering-dialog textarea {
+  background: #fff;
+  border: 1px solid #cbd4cd;
+  border-radius: 6px;
+  font: inherit;
+  letter-spacing: 0;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.ordering-toolbar button,
+.ready-intakes button,
+.ordering-prepare-button,
+.ordering-dialog button,
+.inventory-review-actions a {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #bfcac2;
+  border-radius: 6px;
+  display: inline-flex;
+  gap: 7px;
+  justify-content: center;
+  padding: 10px 14px;
+  text-decoration: none;
+}
+
+.ready-intakes { border-bottom: 1px solid #dbe1dc; padding: 18px 0; }
+.ready-intakes h2 { font-size: 18px; margin: 0 0 10px; }
+.ready-intakes button { margin-right: 8px; }
+
+.ordering-groups { display: grid; gap: 14px; margin-top: 24px; }
+.ordering-group { background: #fff; border: 1px solid #d7ded8; border-left: 4px solid #61766a; }
+.ordering-group-mm { border-left-color: #64a1b9; }
+.ordering-group-brk { border-left-color: #2f6daa; }
+.ordering-group-unmatched { border-left-color: #a6a6a6; }
+.ordering-group > header { gap: 12px; min-height: 64px; padding: 10px 14px; }
+.ordering-group-toggle { align-items: center; background: none; border: 0; display: flex; flex: 1; font-size: 18px; justify-content: space-between; padding: 8px 0; text-align: left; }
+.ordering-group-toggle span { align-items: baseline; display: flex; gap: 9px; }
+.ordering-group-toggle small { color: #738078; font-size: 12px; font-weight: 400; }
+.ordering-prepare-button { white-space: nowrap; }
+.ordering-items { border-top: 1px solid #e1e6e2; }
+.ordering-empty { color: #77817a; margin: 0; padding: 20px; }
+
+.ordering-item {
+  align-items: center;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(190px, 2fr) minmax(100px, 1fr) 130px 110px 90px 42px;
+  min-height: 78px;
+  padding: 13px 16px;
+}
+.ordering-item + .ordering-item { border-top: 1px solid #edf0ed; }
+.ordering-item > div,
+.ordering-item label { display: grid; gap: 4px; min-width: 0; }
+.ordering-item small { color: #758078; }
+.ordering-item-name strong,
+.ordering-item-name span { overflow-wrap: anywhere; }
+.ordering-item-name span { color: #667269; font-size: 13px; }
+
+.ordering-dialog-backdrop { align-items: center; background: rgba(21, 27, 23, 0.42); display: flex; inset: 0; justify-content: center; padding: 18px; position: fixed; z-index: 80; }
+.ordering-dialog { background: #fff; border: 1px solid #cbd4cd; border-radius: 8px; box-shadow: 0 24px 70px rgba(20, 30, 23, 0.22); max-height: calc(100vh - 36px); overflow: auto; padding: 22px; width: min(680px, 100%); }
+.ordering-dialog header { margin-bottom: 18px; }
+.ordering-dialog header h2 { font-size: 22px; letter-spacing: 0; margin: 0; }
+.ordering-dialog header p { margin-top: 0; }
+.ordering-dialog label { display: grid; gap: 6px; margin-top: 13px; }
+.ordering-dialog textarea { resize: vertical; }
+.ordering-dialog-actions { gap: 10px; justify-content: flex-end; margin-top: 18px; }
+.ordering-primary { background: #245d35 !important; border-color: #245d35 !important; color: #fff; }
+.ordering-dialog-intro { color: #59655d; }
+.inventory-review-list { display: grid; gap: 10px; }
+.inventory-review-list article { border: 1px solid #d9e0da; padding: 14px; }
+.inventory-review-list article > div:first-child { display: flex; gap: 12px; justify-content: space-between; }
+.inventory-review-list article span,
+.inventory-review-list article p { color: #657168; font-size: 13px; }
+.inventory-review-actions { justify-content: flex-end; }
+.inventory-review-actions button { background: #245d35; border-color: #245d35; color: #fff; }
+.ordering-add-dialog dl { display: grid; grid-template-columns: 1fr 1fr; }
+.ordering-add-dialog dl div { display: grid; gap: 3px; }
+.ordering-add-dialog dt { color: #69756d; font-size: 13px; }
+
+@media (max-width: 760px) {
+  .ordering-page { padding: 18px 12px 40px; }
+  .ordering-page-header h1 { font-size: 30px; }
+  .ordering-toolbar { align-items: stretch; flex-direction: column; }
+  .ordering-toolbar label { max-width: none; }
+  .ordering-group > header { align-items: stretch; flex-direction: column; }
+  .ordering-prepare-button { width: 100%; }
+  .ordering-item { grid-template-columns: minmax(0, 1fr) 100px 40px; }
+  .ordering-item-name { grid-column: 1 / -1; }
+  .ordering-item > div:nth-of-type(2),
+  .ordering-item > div:nth-of-type(3) { display: none; }
+  .ordering-dialog-actions { align-items: stretch; flex-direction: column; }
+  .inventory-review-list article > div:first-child { flex-direction: column; }
+}

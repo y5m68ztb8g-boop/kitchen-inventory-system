@@ -9,6 +9,7 @@ export type AppCopy = {
     search: string;
     area: string;
     purchasing: string;
+    ordering: string;
     totalValue: string;
   };
   routes: {
@@ -37,6 +38,7 @@ const COPY: Record<Locale, AppCopy> = {
       search: "搜索",
       area: "区域",
       purchasing: "AI录入",
+      ordering: "下单",
       totalValue: "产品库存总金额"
     },
     routes: {
@@ -61,6 +63,7 @@ const COPY: Record<Locale, AppCopy> = {
       search: "Search",
       area: "Area",
       purchasing: "AI Intake",
+      ordering: "Ordering",
       totalValue: "Total Inventory Value"
     },
     routes: {

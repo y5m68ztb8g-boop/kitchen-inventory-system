@@ -20,6 +20,8 @@ const {
   confirmWhiteboardScan: vi.fn()
 }));
 
+const { importReadyIntake } = vi.hoisted(() => ({ importReadyIntake: vi.fn() }));
+
 vi.mock("./purchasing/api", () => ({
   parseIntake,
   savePendingIntake,
@@ -29,6 +31,8 @@ vi.mock("./purchasing/api", () => ({
   confirmWhiteboardScan
 }));
 
+vi.mock("./ordering/api", () => ({ importReadyIntake }));
+
 describe("PurchasingPage intake hub", () => {
   beforeEach(() => {
     scanWhiteboard.mockReset();
@@ -36,6 +40,7 @@ describe("PurchasingPage intake hub", () => {
     parseIntake.mockReset();
     savePendingIntake.mockReset();
     readyForPurchase.mockReset();
+    importReadyIntake.mockReset();
     searchHistoricalProducts.mockReset();
 
     URL.createObjectURL = vi.fn(() => "blob:purchase-input");
@@ -227,6 +232,11 @@ describe("PurchasingPage recognition and review", () => {
       status: "ReadyForPurchase",
       intakeId: "intake-1"
     });
+    importReadyIntake.mockResolvedValue({
+      batch: { id: "batch-task-5" },
+      readyIntakes: [],
+      intakeStatus: "AddedToOrder"
+    });
 
     URL.createObjectURL = vi.fn(() => "blob:purchase-input");
     URL.revokeObjectURL = vi.fn();
@@ -395,6 +405,22 @@ describe("PurchasingPage recognition and review", () => {
     );
     expect(screen.getByText("已转入采购清单")).toBeInTheDocument();
     expect(screen.getAllByText("待匹配")).toHaveLength(2);
+  });
+
+  it("offers ordering handoff after AI intake success, imports once and navigates to ordering", async () => {
+    const user = userEvent.setup();
+    window.location.hash = "#purchasing";
+    render(<PurchasingPage />);
+
+    await user.upload(screen.getByLabelText(/拍照|camera|摄像/i), new File(["whiteboard"], "invoice.jpg", { type: "image/jpeg" }));
+    await user.click(screen.getByRole("button", { name: "开始识别" }));
+    await user.click(screen.getByRole("checkbox", { name: /已人工核对 1/ }));
+    await user.click(screen.getByRole("button", { name: "转入采购清单" }));
+    await user.click(await screen.findByRole("button", { name: "转入下单模块" }));
+
+    expect(importReadyIntake).toHaveBeenCalledTimes(1);
+    expect(importReadyIntake).toHaveBeenCalledWith("intake-1");
+    expect(window.location.hash).toBe("#ordering");
   });
 
   it("disables all review controls while savePendingIntake is pending and re-enables after resolve", async () => {
