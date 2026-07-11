@@ -9,9 +9,9 @@ import {
   addReadyIntakeToBatch,
   deleteBatchItem,
   getBatchDetail,
+  getOrderingIntakeForTransfer,
   getOrderingProfile,
   getOrCreateDraftBatch,
-  listIntakeSupplierProductIds,
   listReadyOrderingIntakes,
   saveBatchPo,
   saveOrderingProfile,
@@ -116,17 +116,16 @@ export function installOrderingRoutes(server: OrderingMiddlewareServer, options:
       const intakeMatch = url.pathname.match(/^\/api\/ordering\/current\/intakes\/([^/]+)$/);
       if (intakeMatch) {
         requireMethod(request, "POST");
-        const batch = getOrCreateDraftBatch(options.database);
-        const candidates = await historicalCandidates();
         const intakeId = decodeURIComponent(intakeMatch[1]);
-        for (const supplierProductId of listIntakeSupplierProductIds(options.database, intakeId)) {
-          requireCandidate(candidates, supplierProductId);
-        }
-        let imported = addReadyIntakeToBatch(options.database, {
+        const intake = getOrderingIntakeForTransfer(options.database, intakeId);
+        const candidates = await historicalCandidates();
+        const rows = intake.items.map((item) => canonicalIntakeRow(item, candidates));
+        const batch = getOrCreateDraftBatch(options.database);
+        const imported = addReadyIntakeToBatch(options.database, {
           batchId: batch.id,
-          intakeId
+          intakeId,
+          rows
         });
-        imported = rehydrateMatchedItems(options.database, imported, candidates);
         sendJson(response, 200, {
           batch: await enrichBatch(imported, await orderingInventory()),
           intakeStatus: "AddedToOrder",
@@ -213,6 +212,29 @@ function updateInput(
 ) {
   const keys = Object.keys(input);
   const requestedProductId = input.supplierProductId === undefined ? existing.supplierProductId : input.supplierProductId;
+  if (input.supplierProductId === null) {
+    if (
+      input.productName === undefined ||
+      input.orderQuantity === undefined ||
+      input.orderUnit === undefined ||
+      input.supplierGroup === undefined
+    ) {
+      throw new PurchasingApiError("INVALID_ORDERING_DATA");
+    }
+    return {
+      productName: input.productName,
+      orderQuantity: input.orderQuantity,
+      orderUnit: input.orderUnit,
+      supplierGroup: input.supplierGroup,
+      supplierProductId: null,
+      supplierProductCode: input.supplierProductCode ?? null,
+      supplierName: null,
+      packSize: null,
+      lastPrice: null,
+      purchaseCount: null,
+      latestPurchaseDate: null
+    };
+  }
   if (requestedProductId) {
     if (keys.some((key) => key !== "supplierProductId" && key !== "orderQuantity")) {
       throw new PurchasingApiError("INVALID_ORDERING_DATA");
@@ -222,10 +244,38 @@ function updateInput(
       input.orderQuantity ?? existing.orderQuantity
     );
   }
-  if (existing.supplierProductId && input.supplierProductId === null) {
-    throw new PurchasingApiError("INVALID_ORDERING_DATA");
-  }
   return input;
+}
+
+function canonicalIntakeRow(
+  item: ReturnType<typeof getOrderingIntakeForTransfer>["items"][number],
+  candidates: HistoricalProductCandidate[]
+) {
+  if (!Number.isFinite(item.quantity) || item.quantity === null || item.quantity <= 0) {
+    throw new PurchasingApiError("INVALID_ORDER_QUANTITY");
+  }
+  if (item.supplierProductId) {
+    return {
+      id: item.id,
+      rowOrder: item.rowOrder,
+      ...matchedDatabaseInput(requireCandidate(candidates, item.supplierProductId), item.quantity)
+    };
+  }
+  return {
+    id: item.id,
+    rowOrder: item.rowOrder,
+    productName: item.productName,
+    supplierGroup: isSupplierGroup(item.supplierCode ?? "") ? item.supplierCode as Exclude<SupplierGroup, "UNMATCHED"> : "UNMATCHED" as const,
+    supplierProductId: null,
+    supplierProductCode: item.supplierProductCode,
+    supplierName: null,
+    packSize: null,
+    orderQuantity: item.quantity,
+    orderUnit: item.unit?.trim() || "unit",
+    lastPrice: null,
+    purchaseCount: null,
+    latestPurchaseDate: null
+  };
 }
 
 function requireCandidate(candidates: HistoricalProductCandidate[], supplierProductId: string) {
@@ -253,23 +303,6 @@ function matchedDatabaseInput(
     purchaseCount: candidate.purchaseCount,
     latestPurchaseDate: candidate.latestPurchaseDate
   };
-}
-
-function rehydrateMatchedItems(
-  database: Database.Database,
-  batch: PurchaseBatch,
-  candidates: HistoricalProductCandidate[]
-): PurchaseBatch {
-  let current = batch;
-  for (const item of batch.items) {
-    if (!item.supplierProductId) continue;
-    current = updateBatchItem(database, {
-      batchId: batch.id,
-      itemId: item.id,
-      ...matchedDatabaseInput(requireCandidate(candidates, item.supplierProductId), item.orderQuantity)
-    });
-  }
-  return current;
 }
 
 async function enrichBatch(batch: PurchaseBatch, inventory: Map<string, OrderingInventorySnapshot>) {

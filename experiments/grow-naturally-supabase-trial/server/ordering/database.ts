@@ -17,9 +17,34 @@ export type * from "./types";
 
 type SupplierCode = Exclude<SupplierGroup, "UNMATCHED">;
 
+export type CanonicalOrderingIntakeRow = Omit<AddBatchItemInput, "batchId" | "id"> & {
+  id: string;
+  rowOrder: number;
+};
+
+export type OrderingIntakeForTransfer = {
+  status: string;
+  items: Array<{
+    id: string;
+    rowOrder: number;
+    productName: string;
+    quantity: number | null;
+    unit: string | null;
+    supplierCode: string | null;
+    supplierProductId: string | null;
+    supplierProductCode: string | null;
+    supplierName: string | null;
+    packSize: string | null;
+    lastPrice: number | null;
+    purchaseCount: number | null;
+    latestPurchaseDate: string | null;
+  }>;
+};
+
 type AddReadyIntakeToBatchInput = {
   batchId: string;
   intakeId: string;
+  rows?: CanonicalOrderingIntakeRow[];
   transferredAt?: string;
 };
 
@@ -192,16 +217,41 @@ export function listReadyOrderingIntakes(database: Database.Database): ReadyOrde
     .all() as ReadyOrderingIntake[];
 }
 
-export function listIntakeSupplierProductIds(database: Database.Database, intakeId: string): string[] {
-  return database
+export function getOrderingIntakeForTransfer(
+  database: Database.Database,
+  intakeId: string
+): OrderingIntakeForTransfer {
+  const intake = database
+    .prepare("SELECT status FROM purchase_intakes WHERE id = ?")
+    .get(intakeId) as { status: string } | undefined;
+  if (intake?.status === "AddedToOrder") {
+    throw new OrderingDatabaseError("INTAKE_ALREADY_ADDED");
+  }
+  if (intake?.status !== "ReadyForPurchase") {
+    throw new OrderingDatabaseError("INTAKE_NOT_READY_FOR_ORDER");
+  }
+
+  const items = database
     .prepare(
-      `SELECT DISTINCT supplier_product_id
+      `SELECT id,
+              row_order AS rowOrder,
+              product_name AS productName,
+              quantity,
+              unit,
+              supplier_code AS supplierCode,
+              supplier_product_id AS supplierProductId,
+              supplier_product_code AS supplierProductCode,
+              supplier_name AS supplierName,
+              supplier_pack_size AS packSize,
+              supplier_last_price AS lastPrice,
+              supplier_purchase_count AS purchaseCount,
+              supplier_last_purchase_date AS latestPurchaseDate
          FROM purchase_intake_items
-        WHERE intake_id = ? AND supplier_product_id IS NOT NULL
-        ORDER BY supplier_product_id ASC`
+        WHERE intake_id = ?
+        ORDER BY row_order ASC, id ASC`
     )
-    .pluck()
-    .all(intakeId) as string[];
+    .all(intakeId) as OrderingIntakeForTransfer["items"];
+  return { status: intake.status, items };
 }
 
 export function addReadyIntakeToBatch(database: Database.Database, input: AddReadyIntakeToBatchInput): PurchaseBatch {
@@ -218,40 +268,24 @@ export function addReadyIntakeToBatch(database: Database.Database, input: AddRea
       throw new OrderingDatabaseError("INTAKE_NOT_READY_FOR_ORDER");
     }
 
-    const rows = database
-      .prepare(
-        `SELECT id,
-                row_order AS rowOrder,
-                product_name AS productName,
-                quantity,
-                unit,
-                supplier_code AS supplierCode,
-                supplier_product_id AS supplierProductId,
-                supplier_product_code AS supplierProductCode,
-                supplier_name AS supplierName,
-                supplier_pack_size AS packSize,
-                supplier_last_price AS lastPrice,
-                supplier_purchase_count AS purchaseCount,
-                supplier_last_purchase_date AS latestPurchaseDate
-           FROM purchase_intake_items
-          WHERE intake_id = ?
-          ORDER BY row_order ASC, id ASC`
-      )
-      .all(input.intakeId) as Array<{
-      id: string;
-      rowOrder: number;
-      productName: string;
-      quantity: number | null;
-      unit: string | null;
-      supplierCode: string | null;
-      supplierProductId: string | null;
-      supplierProductCode: string | null;
-      supplierName: string | null;
-      packSize: string | null;
-      lastPrice: number | null;
-      purchaseCount: number | null;
-      latestPurchaseDate: string | null;
-    }>;
+    const source = input.rows ? null : getOrderingIntakeForTransfer(database, input.intakeId);
+    const rows =
+      input.rows ??
+      source!.items.map((row) => ({
+        id: row.id,
+        rowOrder: row.rowOrder,
+        productName: row.productName,
+        supplierGroup: supplierGroupFor(row.supplierCode),
+        supplierProductId: row.supplierProductId,
+        supplierProductCode: row.supplierProductCode,
+        supplierName: row.supplierName,
+        packSize: row.packSize,
+        orderQuantity: row.quantity ?? Number.NaN,
+        orderUnit: orderUnitFor(row.unit, row.packSize),
+        lastPrice: row.lastPrice,
+        purchaseCount: row.purchaseCount,
+        latestPurchaseDate: row.latestPurchaseDate
+      }));
 
     const insertItem = database.prepare(
       `INSERT INTO purchase_batch_items (
@@ -266,32 +300,37 @@ export function addReadyIntakeToBatch(database: Database.Database, input: AddRea
        VALUES (?, ?, 'Pending', ?)
        ON CONFLICT(batch_id, supplier_code) DO NOTHING`
     );
+    const applyCanonicalSupplierName = database.prepare(
+      "UPDATE purchase_batch_items SET supplier_name = ? WHERE id = ? AND batch_id = ?"
+    );
 
     for (const row of rows) {
-      if (!Number.isFinite(row.quantity) || row.quantity === null || row.quantity <= 0) {
+      if (!Number.isFinite(row.orderQuantity) || row.orderQuantity <= 0) {
         throw new OrderingDatabaseError("INVALID_ORDER_QUANTITY");
       }
-      const supplierGroup = supplierGroupFor(row.supplierCode);
       insertItem.run(
         `${input.intakeId}:${row.id}`,
         input.batchId,
         row.rowOrder,
         row.productName,
-        supplierGroup,
+        row.supplierGroup,
         row.supplierProductId,
         row.supplierProductCode,
         row.supplierName,
         row.packSize,
-        row.quantity,
-        orderUnitFor(row.unit, row.packSize),
+        row.orderQuantity,
+        row.orderUnit,
         row.lastPrice,
         row.purchaseCount,
         row.latestPurchaseDate,
         transferredAt,
         transferredAt
       );
-      if (supplierGroup !== "UNMATCHED") {
-        addSupplier.run(input.batchId, supplierGroup, transferredAt);
+      if (row.supplierProductId && row.supplierName) {
+        applyCanonicalSupplierName.run(row.supplierName, `${input.intakeId}:${row.id}`, input.batchId);
+      }
+      if (row.supplierGroup !== "UNMATCHED") {
+        addSupplier.run(input.batchId, row.supplierGroup, transferredAt);
       }
     }
 
