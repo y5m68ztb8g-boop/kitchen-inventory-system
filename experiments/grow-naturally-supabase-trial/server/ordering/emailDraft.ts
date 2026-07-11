@@ -40,7 +40,7 @@ export function buildSupplierEmailDraft(input: {
     }
     const pack = item.packSize?.trim() || "unit";
     const code = item.supplierProductCode?.trim();
-    return `${item.orderQuantity} x ${pack} ${name}${code ? ` [${code}]` : ""}`;
+    return `${code ? `${code} - ` : ""}${item.orderQuantity} x ${pack} ${name}`;
   });
 
   return {

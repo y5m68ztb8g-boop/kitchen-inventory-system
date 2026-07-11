@@ -404,8 +404,10 @@ describe("ordering supplier preparation", () => {
       to: task4OrderingProfile.markMurphyEmail,
       subject: `Order - ${task4OrderingProfile.hotelName} - PO ${task4PoNumber}`
     });
-    expect(cmpDraft.body).toContain("2 x 12x1kg Chicken Breast [200101]");
-    expect(mmDraft.body).toContain("1 x 6x1L Orange Juice [300500]");
+    expect(cmpDraft.body).toContain("200101 - 2 x 12x1kg Chicken Breast");
+    expect(mmDraft.body).toContain("300500 - 1 x 6x1L Orange Juice");
+    expect(cmpDraft.body.indexOf("200101")).toBeLessThan(cmpDraft.body.indexOf("Chicken Breast"));
+    expect(mmDraft.body.indexOf("300500")).toBeLessThan(mmDraft.body.indexOf("Orange Juice"));
     expect(mmDraft.body).toContain(task4OrderingProfile.purchaserName);
     expect(mmDraft.body).toContain(task4OrderingProfile.hotelName);
 
