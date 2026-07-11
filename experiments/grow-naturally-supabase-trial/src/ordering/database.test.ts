@@ -164,6 +164,63 @@ function databaseWithPreOrderingIntakeSchema() {
   return database;
 }
 
+function databaseWithLegacyBatchQuantityAndNullIntakeData() {
+  const database = databaseWithPreOrderingIntakeSchema();
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS purchase_batches (
+      id TEXT PRIMARY KEY,
+      po_number TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL CHECK (status IN ('Draft', 'PartiallyOrdered', 'Ordered')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS purchase_batch_items (
+      id TEXT PRIMARY KEY,
+      batch_id TEXT NOT NULL,
+      row_order INTEGER NOT NULL,
+      product_name TEXT NOT NULL,
+      supplier_group TEXT NOT NULL CHECK (supplier_group IN ('CMP', 'MM', 'BRK', 'UNMATCHED')),
+      supplier_product_id TEXT,
+      supplier_product_code TEXT,
+      supplier_name TEXT,
+      pack_size TEXT,
+      order_quantity REAL NOT NULL CHECK (order_quantity > 0),
+      order_unit TEXT NOT NULL,
+      last_price REAL,
+      purchase_count INTEGER,
+      latest_purchase_date TEXT,
+      brakes_status TEXT NOT NULL CHECK (brakes_status IN ('Pending', 'Added', 'AwaitingConfirmation', 'InvalidCode', 'Failed')),
+      brakes_message TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (batch_id) REFERENCES purchase_batches(id) ON DELETE CASCADE
+    );
+  `);
+
+  database.prepare(`
+    INSERT INTO purchase_batches (
+      id, po_number, status, created_at, updated_at
+    ) VALUES (?, '', 'Draft', '2026-07-11T10:00:00.000Z', '2026-07-11T10:00:00.000Z')
+  `).run("batch-legacy");
+
+  database.prepare(`
+    INSERT INTO purchase_batch_items (
+      id, batch_id, row_order, product_name, supplier_group, supplier_product_id,
+      supplier_product_code, supplier_name, pack_size, order_quantity, order_unit,
+      last_price, purchase_count, latest_purchase_date, brakes_status, brakes_message,
+      created_at, updated_at
+    ) VALUES (
+      'batch-legacy:item-legacy', 'batch-legacy', 0, 'Legacy rolls', 'BRK', 'BRK-LEGACY',
+      'BRK-L1', 'Brakes', '10', 3, 'tray', 12, 2, '2026-06-01',
+      'Pending', NULL, '2026-07-11T10:00:00.000Z', '2026-07-11T10:00:00.000Z'
+    )
+  `).run();
+
+  database.prepare("UPDATE purchase_intake_items SET quantity = NULL WHERE id = 'intake-1:item-1'").run();
+  return database;
+}
+
 describe("ordering purchasing database", () => {
   it("creates ordering tables idempotently with foreign keys enabled", () => {
     const names = tableNames(createPurchasingDatabase(":memory:"));
@@ -217,6 +274,46 @@ describe("ordering purchasing database", () => {
     });
     expect(migrated.pragma("foreign_key_check")).toEqual([]);
     expect(() => setIntakeStatus(migrated, "intake-1", "AddedToOrder")).not.toThrow();
+  });
+
+  it("migrates legacy purchase_batch_items quantity nullability and accepts null quantity on handoff", () => {
+    const database = databaseWithLegacyBatchQuantityAndNullIntakeData();
+    const migrated = createPurchasingDatabase(database);
+
+    const batch = getBatchDetail(migrated, "batch-legacy");
+
+    const legacyRow = migrated
+      .prepare("SELECT id, product_name AS productName, order_quantity AS orderQuantity FROM purchase_batch_items WHERE id = ?")
+      .get("batch-legacy:item-legacy");
+
+    expect(batch.items).toHaveLength(1);
+    expect(legacyRow).toMatchObject({
+      id: "batch-legacy:item-legacy",
+      productName: "Legacy rolls",
+      orderQuantity: 3
+    });
+
+    type PragmaTableInfo = {
+      cid: number;
+      name: string;
+      type: string;
+      notnull: number;
+      dflt_value: string | null;
+      pk: number;
+    };
+    const tableInfo = migrated.pragma("table_info(purchase_batch_items)") as PragmaTableInfo[];
+    const orderQuantityColumn = tableInfo.find((column: PragmaTableInfo) => column.name === "order_quantity");
+    expect(orderQuantityColumn?.notnull).toBe(0);
+
+    const readyBatch = addReadyIntakeToBatch(migrated, {
+      batchId: "batch-legacy",
+      intakeId: "intake-1",
+      transferredAt: "2026-07-11T10:01:00.000Z"
+    });
+    expect(readyBatch.items).toMatchObject([
+      expect.objectContaining({ productName: "Legacy rolls", orderQuantity: 3 }),
+      expect.objectContaining({ productName: "Bread rolls", orderQuantity: null })
+    ]);
   });
 
   it("moves one ready intake into the current draft batch exactly once", () => {

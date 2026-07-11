@@ -477,17 +477,18 @@ describe("OrderingPage", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(failMessage);
   });
 
-  it("shows a half-year no-history prompt for manual search and keeps direct-entry available", async () => {
+  it.each(["NoMatch", "SEA-B", "SEAB", "SEA B"])("shows a half-year no-history prompt for manual search and keeps direct-entry available", async (query) => {
     const user = userEvent.setup();
     searchHistoricalProducts.mockResolvedValue({ candidates: [] });
 
     render(<OrderingPage />);
     await user.click(await screen.findByRole("button", { name: "手动添加" }));
 
-    await user.type(await screen.findByLabelText("搜索历史发票商品"), "NoMatch");
-    expect(await screen.findByRole("dialog", { name: "匹配发票商品 NoMatch" })).toHaveTextContent(
-      "近半年没有找到历史采购记录，当前商品未出现在发票中。请手动确认，或直接录入未匹配商品。"
+    await user.type(await screen.findByLabelText("搜索历史发票商品"), query);
+    expect(await screen.findByRole("dialog", { name: `匹配发票商品 ${query}` })).toHaveTextContent(
+      "近半年没有找到历史采购记录，当前商品未出现在发票中。请删除此行，或在下单页手动录入。"
     );
+    expect(screen.queryByRole("button", { name: "确认未找到历史商品" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "直接录入未匹配商品" }));
 
     await user.type(screen.getByLabelText("产品名称"), "Event garnish");

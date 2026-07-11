@@ -35,7 +35,7 @@ export function buildSupplierEmailDraft(input: {
 
   const lines = input.items.map((item) => {
     const name = item.productName.trim();
-    if (!name || !Number.isFinite(item.orderQuantity) || item.orderQuantity <= 0) {
+    if (!name || item.orderQuantity === null || !Number.isFinite(item.orderQuantity) || item.orderQuantity <= 0) {
       throw new Error("Invalid supplier email item");
     }
     const pack = item.packSize?.trim() || "unit";

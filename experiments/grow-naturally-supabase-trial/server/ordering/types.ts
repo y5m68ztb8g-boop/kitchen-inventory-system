@@ -24,7 +24,7 @@ export type PurchaseBatchItem = {
   supplierProductCode: string | null;
   supplierName: string | null;
   packSize: string | null;
-  orderQuantity: number;
+  orderQuantity: number | null;
   orderUnit: string;
   lastPrice: number | null;
   purchaseCount: number | null;

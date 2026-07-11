@@ -71,10 +71,6 @@ function emptyReviewItem(clientId: string): PurchaseIntakeReviewItem {
   );
 }
 
-function nullableText(value: string) {
-  return value.trim() ? value : null;
-}
-
 function fileKind(file: File) {
   const extension = file.name.split(".").pop()?.toLocaleUpperCase("en-GB") ?? "文件";
   if (file.type === "application/pdf" || extension === "PDF") {
@@ -116,7 +112,7 @@ export function PurchasingPage() {
   const requiresManualReview = useMemo(
     () =>
       state.kind === "review" &&
-      state.items.some((item) => (item.confidence < 0.8 || !item.supplierProductId) && !item.manualReviewed),
+      state.items.some((item) => !item.supplierProductId),
     [state]
   );
 
@@ -124,15 +120,6 @@ export function PurchasingPage() {
     () => state.kind === "review" ? state.items.filter((item) => !item.supplierProductId) : [],
     [state]
   );
-
-  const invalidTransferItems = useMemo(
-    () => state.kind === "review"
-      ? state.items.filter((item) => !item.product_name.trim() || item.quantity === null || !Number.isFinite(item.quantity) || item.quantity <= 0)
-      : [],
-    [state]
-  );
-
-  const transferBlocked = requiresManualReview || invalidTransferItems.length > 0;
 
   function nextClientId() {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -290,7 +277,7 @@ export function PurchasingPage() {
   }
 
   async function saveDraft() {
-    if (state.kind !== "review" || state.handedOff || transferBlocked || state.items.length === 0) {
+    if (state.kind !== "review" || state.handedOff || requiresManualReview || state.items.length === 0) {
       return;
     }
     const review = state;
@@ -325,10 +312,6 @@ export function PurchasingPage() {
         message: error instanceof Error ? error.message : "转入失败，请稍后重试。"
       });
     }
-  }
-
-  function confirmUnmatched(clientId: string) {
-    updateItem(clientId, { manualReviewed: true });
   }
 
   const matchingItem =
@@ -422,36 +405,21 @@ export function PurchasingPage() {
                 有 {unmatchedItems.length} 项没有匹配到历史发票商品。请先匹配发票，或确认“未找到历史商品”后，才能转入下单模块。
               </p>
             )}
-            {invalidTransferItems.length > 0 && (
-              <p className="purchase-review-warning" role="alert">
-                有 {invalidTransferItems.length} 项缺少有效数量或产品名称。请补充后，才能转入下单模块。
-              </p>
-            )}
 
             <div className="purchase-review-table" role="table" aria-label="采购项目核对表">
               {state.items.map((item, index) => {
                 const number = index + 1;
                 const lowConfidence = item.confidence < 0.8;
                 const unmatched = !item.supplierProductId;
-                const invalidTransfer = invalidTransferItems.some((entry) => entry.clientId === item.clientId);
                 const reviewLocked = state.handedOff || state.action !== "idle";
                 return (
-                  <article className={`purchase-review-row${lowConfidence || unmatched || invalidTransfer ? " purchase-review-row-low-confidence" : ""}`} data-testid={`purchase-review-row-${number}`} key={item.clientId} role="row">
-                    <div className="purchase-review-fields">
-                      <label><span>部门</span><input aria-label={`部门 ${number}`} disabled={reviewLocked} onChange={(event) => updateItem(item.clientId, { department: nullableText(event.target.value) })} value={item.department ?? ""} /></label>
+                  <article className={`purchase-review-row${lowConfidence || unmatched ? " purchase-review-row-low-confidence" : ""}`} data-testid={`purchase-review-row-${number}`} key={item.clientId} role="row">
+                    <div className="purchase-review-fields purchase-review-fields-compact">
                       <label className="purchase-product-field"><span>产品名称</span><input aria-label={`产品名称 ${number}`} disabled={reviewLocked} onChange={(event) => updateItem(item.clientId, { matchQueryName: event.target.value, product_name: event.target.value })} value={item.product_name} /></label>
-                      <label><span>数量</span><input aria-label={`数量 ${number}`} disabled={reviewLocked} inputMode="decimal" min="0" onChange={(event) => updateItem(item.clientId, { quantity: event.target.value === "" ? null : Number(event.target.value) })} type="number" value={item.quantity ?? ""} /></label>
-                      <label><span>单位</span><input aria-label={`单位 ${number}`} disabled={reviewLocked} onChange={(event) => updateItem(item.clientId, { unit: nullableText(event.target.value) })} value={item.unit ?? ""} /></label>
-                      <label><span>备注</span><input aria-label={`备注 ${number}`} disabled={reviewLocked} onChange={(event) => updateItem(item.clientId, { notes: nullableText(event.target.value) })} value={item.notes ?? ""} /></label>
+                      <span className={item.supplierProductId ? "purchase-match-state purchase-match-state-ok" : "purchase-match-state"}>{item.supplierProductId ? `${item.supplierName} · ${item.supplierProductCode}` : "未匹配历史发票商品"}</span>
                     </div>
                     <div className="purchase-review-meta">
-                      <label className="purchase-review-check">
-                        <input aria-label={`已人工核对 ${number}`} checked={item.manualReviewed} disabled={reviewLocked} onChange={(event) => updateItem(item.clientId, { manualReviewed: event.target.checked })} type="checkbox" />
-                        <span>{lowConfidence || unmatched ? "已人工核对（必填）" : "已人工核对"}</span>
-                      </label>
-                      <span className={item.supplierProductId ? "purchase-match-state purchase-match-state-ok" : "purchase-match-state"}>{item.supplierProductId ? `${item.supplierName} · ${item.supplierProductCode}` : item.manualReviewed ? "已确认未找到历史商品" : "未匹配历史发票商品"}</span>
                       <button disabled={reviewLocked} onClick={(event) => openMatching(event, item.clientId)} type="button">匹配发票商品 {item.product_name}</button>
-                      {unmatched && <button disabled={reviewLocked || item.manualReviewed} onClick={() => confirmUnmatched(item.clientId)} type="button">{item.manualReviewed ? "已确认未找到历史商品" : "确认未找到历史商品"}</button>}
                       {item.supplierProductId && <button disabled={reviewLocked} onClick={() => clearProduct(item.clientId)} type="button">清除匹配</button>}
                       <button aria-label={`删除第 ${number} 行`} className="purchasing-icon-button" disabled={reviewLocked} onClick={() => removeItem(item.clientId)} title={`删除第 ${number} 行`} type="button"><Trash2 aria-hidden="true" size={18} /></button>
                     </div>
@@ -463,7 +431,7 @@ export function PurchasingPage() {
             <div className="purchase-review-actions">
               <button disabled={state.handedOff || state.action !== "idle"} onClick={addItem} type="button"><Plus aria-hidden="true" size={18} />新增一行</button>
               <button disabled={state.handedOff || state.action !== "idle" || requiresManualReview || state.items.length === 0} onClick={() => void saveDraft()} type="button">{state.action === "saving" ? "保存中..." : "保存草稿"}</button>
-              <button className="purchasing-primary-action" disabled={state.handedOff || state.action !== "idle" || transferBlocked || state.items.length === 0} onClick={() => void handOff()} type="button">{state.action === "handing-off" ? "正在转入下单..." : "转入下单模块"}</button>
+              <button className="purchasing-primary-action" disabled={state.handedOff || state.action !== "idle" || requiresManualReview || state.items.length === 0} onClick={() => void handOff()} type="button">{state.action === "handing-off" ? "正在转入下单..." : "转入下单模块"}</button>
             </div>
           </section>
         )}
@@ -474,7 +442,6 @@ export function PurchasingPage() {
         onChoose={chooseProduct}
         onClose={closeMatching}
         returnFocusElement={matchingTriggerRef.current}
-        secondaryAction={{ label: "确认未找到历史商品", onClick: () => { confirmUnmatched(matchingItem.clientId); closeMatching(); } }}
         selectedProductId={matchingItem.supplierProductId}
       />}
 

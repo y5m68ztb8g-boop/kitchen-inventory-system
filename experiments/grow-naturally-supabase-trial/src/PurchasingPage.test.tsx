@@ -42,7 +42,6 @@ describe("PurchasingPage intake hub", () => {
     savePendingIntake.mockReset();
     readyForPurchase.mockReset();
     importReadyIntake.mockReset();
-    importReadyIntake.mockReset();
     searchHistoricalProducts.mockReset();
 
     URL.createObjectURL = vi.fn(() => "blob:purchase-input");
@@ -251,7 +250,23 @@ describe("PurchasingPage recognition and review", () => {
 
   it("requires manual review for low-confidence items and supports row edit, remove and add", async () => {
     const user = userEvent.setup();
-    searchHistoricalProducts.mockResolvedValue({ candidates: [] });
+    searchHistoricalProducts.mockResolvedValue({
+      candidates: [
+        {
+          id: "BRK-ORANGE",
+          isRecommended: true,
+          productName: "Orange Juice",
+          supplierName: "Brakes",
+          supplierCode: "BRK",
+          supplierProductCode: "OJ-1",
+          packSize: "4x2.5L",
+          latestPrice: 24.5,
+          purchaseCount: 10,
+          latestPurchaseDate: "2026-07-01",
+          currentInventoryQuantity: 7
+        }
+      ]
+    });
     render(<PurchasingPage />);
     const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
 
@@ -260,32 +275,24 @@ describe("PurchasingPage recognition and review", () => {
 
     const row = screen.getByTestId("purchase-review-row-1");
     expect(row).toHaveClass("purchase-review-row-low-confidence");
-    expect(screen.getByRole("checkbox", { name: /已人工核对 1/ })).not.toBeChecked();
 
-    await user.clear(screen.getByLabelText("部门 1"));
-    await user.type(screen.getByLabelText("部门 1"), "宴会");
     await user.clear(screen.getByLabelText("产品名称 1"));
     await user.type(screen.getByLabelText("产品名称 1"), "橙汁（修订）");
-    await user.clear(screen.getByLabelText("数量 1"));
-    await user.type(screen.getByLabelText("数量 1"), "3");
-    await user.clear(screen.getByLabelText("单位 1"));
-    await user.type(screen.getByLabelText("单位 1"), "箱");
-    await user.clear(screen.getByLabelText("备注 1"));
-    await user.type(screen.getByLabelText("备注 1"), "无糖");
     await user.click(screen.getByRole("button", { name: "删除第 2 行" }));
     await user.click(screen.getByRole("button", { name: "新增一行" }));
 
     expect(screen.getByLabelText("产品名称 2")).toHaveValue("");
-    expect(screen.getByRole("checkbox", { name: /已人工核对 2/ })).not.toBeChecked();
     const firstRow = screen.getByTestId("purchase-review-row-1");
     const secondRow = screen.getByTestId("purchase-review-row-2");
-    await user.click(within(firstRow).getByRole("button", { name: /匹配发票商品/ }));
-    const firstMatchDialog = await screen.findByRole("dialog", { name: /匹配发票商品/ });
-    await user.click(within(firstMatchDialog).getByRole("button", { name: "确认未找到历史商品" }));
-    await user.click(within(secondRow).getByRole("button", { name: /匹配发票商品/ }));
-    const secondMatchDialog = await screen.findByRole("dialog", { name: /匹配发票商品/ });
-    await user.click(within(secondMatchDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    expect(within(firstRow).getByRole("button", { name: /匹配发票商品/ })).toBeInTheDocument();
+    expect(within(secondRow).getByRole("button", { name: /匹配发票商品/ })).toBeInTheDocument();
+    expect(within(secondRow).getByRole("button", { name: /删除第 2 行/ })).toBeInTheDocument();
     await user.click(within(secondRow).getByRole("button", { name: /删除第 2 行/ }));
+    await user.click(screen.getByRole("button", { name: "匹配发票商品 橙汁（修订）" }));
+    const firstMatchDialog = await screen.findByRole("dialog", { name: "匹配发票商品 橙汁（修订）" });
+    await user.click(within(firstMatchDialog).getByRole("button", { name: /选择 Orange Juice/ }));
+    await user.click(screen.getByRole("button", { name: "新增一行" }));
+    await user.click(screen.getByRole("button", { name: "删除第 2 行" }));
 
     await user.click(screen.getByRole("button", { name: "保存草稿" }));
 
@@ -294,9 +301,8 @@ describe("PurchasingPage recognition and review", () => {
       expect.arrayContaining([
         expect.objectContaining({
           clientId: expect.any(String),
-          product_name: "橙汁（修订）",
-          quantity: 3,
-          notes: "无糖",
+          matchQueryName: "橙汁（修订）",
+          product_name: "Orange Juice",
           raw_text: "2箱橙汁"
         })
       ])
@@ -304,7 +310,7 @@ describe("PurchasingPage recognition and review", () => {
     expect(screen.getByRole("button", { name: "保存草稿" })).toBeInTheDocument();
   });
 
-  it("opens historical matching dialog, updates row names from product selection and allows clear", async () => {
+  it("opens historical matching dialog and updates row names from product selection", async () => {
     const user = userEvent.setup();
     render(<PurchasingPage />);
     const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
@@ -325,15 +331,12 @@ describe("PurchasingPage recognition and review", () => {
 
     await user.click(screen.getByRole("button", { name: "选择 Orange Juice" }));
     expect(screen.getByLabelText("产品名称 1")).toHaveValue("Orange Juice");
-
-    await user.click(screen.getByRole("button", { name: "清除匹配" }));
-    expect(screen.getByLabelText("产品名称 1")).toHaveValue("Orange Juice");
   });
 
   it.each([
     { quantity: null, label: "null" },
     { quantity: 0, label: "0" }
-  ])("blocks handoff when review quantity is $label and shows quantity hint", async ({ quantity }) => {
+  ])("allows handoff for review quantity $label without blocking transfer flow", async ({ quantity }) => {
     const user = userEvent.setup();
     parseIntake.mockResolvedValue({
       sourceType: "image",
@@ -381,12 +384,70 @@ describe("PurchasingPage recognition and review", () => {
     await user.click(screen.getByRole("button", { name: "匹配发票商品 橙汁" }));
     await user.click(screen.getByRole("button", { name: "选择 Orange Juice" }));
     const handoffButton = screen.getByRole("button", { name: "转入下单模块" });
-    expect(handoffButton).toBeDisabled();
-    expect(screen.getByRole("alert")).toHaveTextContent(/缺少有效数量/);
+    expect(handoffButton).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
     await user.click(handoffButton);
-    expect(readyForPurchase).not.toHaveBeenCalled();
-    expect(importReadyIntake).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(readyForPurchase).toHaveBeenCalledWith(
+        "intake-1",
+        expect.arrayContaining([
+          expect.objectContaining({
+            clientId: expect.any(String),
+            product_name: "Orange Juice",
+            supplierProductId: "BRK-ORANGE",
+            quantity
+          })
+        ])
+      );
+      expect(importReadyIntake).toHaveBeenCalledWith("intake-1");
+      expect(window.location.hash).toBe("#ordering");
+    });
+  });
+
+  it("does not require department, unit, or notes content to transfer a matched row", async () => {
+    const user = userEvent.setup();
+    parseIntake.mockResolvedValue({
+      sourceType: "image",
+      sourceUrl: "/api/purchasing/intakes/intake-1/source",
+      originalFilename: "invoice.jpg",
+      intakeId: "intake-1",
+      items: [
+        {
+          confidence: 0.95,
+          department: "",
+          notes: "",
+          product_name: "橙汁",
+          quantity: 2,
+          raw_text: "2箱橙汁",
+          unit: ""
+        }
+      ],
+      unreadableText: [],
+      generalNotes: null
+    });
+
+    render(<PurchasingPage />);
+    const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
+    await user.upload(cameraInput, new File(["invoice"], "invoice.jpg", { type: "image/jpeg" }));
+    await user.click(screen.getByRole("button", { name: "开始识别" }));
+
+    await user.click(screen.getByRole("button", { name: "匹配发票商品 橙汁" }));
+    await user.click(screen.getByRole("button", { name: "选择 Orange Juice" }));
+    await user.click(screen.getByRole("button", { name: "转入下单模块" }));
+
+    await waitFor(() => {
+      expect(readyForPurchase).toHaveBeenCalledWith(
+        "intake-1",
+        expect.arrayContaining([
+          expect.objectContaining({
+            supplierProductId: "BRK-ORANGE"
+          })
+        ])
+      );
+      expect(importReadyIntake).toHaveBeenCalledWith("intake-1");
+      expect(window.location.hash).toBe("#ordering");
+    });
   });
 
   it("preserves matchQueryName on save payload while saving canonical match product name", async () => {
@@ -455,7 +516,26 @@ describe("PurchasingPage recognition and review", () => {
 
   it("transitions pending save and keeps review state before handoff", async () => {
     const user = userEvent.setup();
-    searchHistoricalProducts.mockResolvedValue({ candidates: [] });
+    searchHistoricalProducts
+      .mockResolvedValueOnce({
+        candidates: [
+          {
+            id: "BRK-ORANGE",
+            isRecommended: true,
+            productName: "Orange Juice",
+            supplierName: "Brakes",
+            supplierCode: "BRK",
+            supplierProductCode: "OJ-1",
+            packSize: "4x2.5L",
+            latestPrice: 24.5,
+            purchaseCount: 10,
+            latestPurchaseDate: "2026-07-01",
+            currentInventoryQuantity: 7
+          }
+        ]
+      })
+      .mockResolvedValueOnce({ candidates: [] });
+
     render(<PurchasingPage />);
     const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
 
@@ -463,10 +543,12 @@ describe("PurchasingPage recognition and review", () => {
     await user.click(screen.getByRole("button", { name: "开始识别" }));
     await user.click(screen.getByRole("button", { name: "匹配发票商品 橙汁" }));
     const firstConfirmDialog = await screen.findByRole("dialog", { name: "匹配发票商品 橙汁" });
-    await user.click(within(firstConfirmDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    await user.click(within(firstConfirmDialog).getByRole("button", { name: "选择 Orange Juice" }));
+    await user.click(within(firstConfirmDialog).getByRole("button", { name: "关闭商品匹配" }));
     await user.click(screen.getByRole("button", { name: /匹配发票商品 高档牛奶/ }));
     const secondConfirmDialog = await screen.findByRole("dialog", { name: "匹配发票商品 高档牛奶" });
-    await user.click(within(secondConfirmDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    await user.click(within(secondConfirmDialog).getByRole("button", { name: "关闭商品匹配" }));
+    await user.click(screen.getByRole("button", { name: "删除第 2 行" }));
 
     await user.click(screen.getByRole("button", { name: "保存草稿" }));
 
@@ -479,8 +561,8 @@ describe("PurchasingPage recognition and review", () => {
       expect.arrayContaining([
         expect.objectContaining({
           clientId: expect.any(String),
-          supplierProductId: null,
-          product_name: "橙汁"
+          supplierProductId: "BRK-ORANGE",
+          product_name: "Orange Juice"
         })
       ])
     );
@@ -490,7 +572,25 @@ describe("PurchasingPage recognition and review", () => {
 
   it("offers ordering handoff after AI intake success, imports once and navigates to ordering", async () => {
     const user = userEvent.setup();
-    searchHistoricalProducts.mockResolvedValue({ candidates: [] });
+    searchHistoricalProducts
+      .mockResolvedValueOnce({
+        candidates: [
+          {
+            id: "BRK-ORANGE",
+            isRecommended: true,
+            productName: "Orange Juice",
+            supplierName: "Brakes",
+            supplierCode: "BRK",
+            supplierProductCode: "OJ-1",
+            packSize: "4x2.5L",
+            latestPrice: 24.5,
+            purchaseCount: 10,
+            latestPurchaseDate: "2026-07-01",
+            currentInventoryQuantity: 7
+          }
+        ]
+      })
+      .mockResolvedValueOnce({ candidates: [] });
     window.location.hash = "#purchasing";
     render(<PurchasingPage />);
 
@@ -498,10 +598,12 @@ describe("PurchasingPage recognition and review", () => {
     await user.click(screen.getByRole("button", { name: "开始识别" }));
     await user.click(screen.getByRole("button", { name: "匹配发票商品 橙汁" }));
     const firstConfirmDialog = await screen.findByRole("dialog", { name: "匹配发票商品 橙汁" });
-    await user.click(within(firstConfirmDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    await user.click(within(firstConfirmDialog).getByRole("button", { name: "选择 Orange Juice" }));
+    await user.click(within(firstConfirmDialog).getByRole("button", { name: "关闭商品匹配" }));
     await user.click(screen.getByRole("button", { name: /匹配发票商品 高档牛奶/ }));
     const secondConfirmDialog = await screen.findByRole("dialog", { name: "匹配发票商品 高档牛奶" });
-    await user.click(within(secondConfirmDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    await user.click(within(secondConfirmDialog).getByRole("button", { name: "关闭商品匹配" }));
+    await user.click(screen.getByRole("button", { name: "删除第 2 行" }));
     await user.click(screen.getByRole("button", { name: "转入下单模块" }));
 
     await waitFor(() => {
@@ -512,7 +614,7 @@ describe("PurchasingPage recognition and review", () => {
     });
   });
 
-  it("requires explicit confirmation before handing off rows without historical match", async () => {
+  it("does not require explicit confirmation before handing off rows without historical match", async () => {
     const user = userEvent.setup();
     searchHistoricalProducts.mockResolvedValue({ candidates: [] });
 
@@ -520,25 +622,84 @@ describe("PurchasingPage recognition and review", () => {
     await user.upload(screen.getByLabelText(/拍照|camera|摄像/i), new File(["whiteboard"], "invoice.jpg", { type: "image/jpeg" }));
     await user.click(screen.getByRole("button", { name: "开始识别" }));
 
-    for (let index = 0; index < screen.getAllByTestId(/purchase-review-row-/).length; index += 1) {
-      const rowId = `purchase-review-row-${index + 1}`;
-      const row = screen.getByTestId(rowId);
-      const matchButton = within(row).getByRole("button", { name: /匹配发票商品/ });
-      await user.click(matchButton);
-      const confirmDialog = await screen.findByRole("dialog", { name: /匹配发票商品/ });
-      expect(confirmDialog).toHaveTextContent("未找到历史商品");
-      expect(within(confirmDialog).getByRole("button", { name: "确认未找到历史商品" })).toBeInTheDocument();
-      await user.click(within(confirmDialog).getByRole("button", { name: "确认未找到历史商品" }));
-      await waitFor(() => {
-        expect(screen.getByTestId(rowId)).toHaveTextContent("已确认未找到历史商品");
-      });
-    }
-    expect(screen.getByRole("button", { name: "转入下单模块" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "删除第 2 行" }));
+    expect(screen.queryByTestId("purchase-review-row-2")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "转入下单模块" })).toBeInTheDocument();
+  });
+
+  it("allows direct deletion of an unmatched row and hands off the remaining matched row", async () => {
+    const user = userEvent.setup();
+    searchHistoricalProducts
+      .mockResolvedValueOnce({
+        candidates: [
+          {
+            id: "BRK-ORANGE",
+            isRecommended: true,
+            productName: "Orange Juice",
+            supplierName: "Brakes",
+            supplierCode: "BRK",
+            supplierProductCode: "OJ-1",
+            packSize: "4x2.5L",
+            latestPrice: 24.5,
+            purchaseCount: 10,
+            latestPurchaseDate: "2026-07-01",
+            currentInventoryQuantity: 7
+          }
+        ]
+      })
+      .mockResolvedValueOnce({ candidates: [] });
+
+    render(<PurchasingPage />);
+    await user.upload(screen.getByLabelText(/拍照|camera|摄像/i), new File(["whiteboard"], "invoice.jpg", { type: "image/jpeg" }));
+    await user.click(screen.getByRole("button", { name: "开始识别" }));
+
+    const matchFirst = screen.getByTestId("purchase-review-row-1");
+    await user.click(within(matchFirst).getByRole("button", { name: /匹配发票商品/ }));
+    const firstMatchDialog = await screen.findByRole("dialog", { name: /匹配发票商品/ });
+    await user.click(within(firstMatchDialog).getByRole("button", { name: "选择 Orange Juice" }));
+
+    expect(screen.getByLabelText("产品名称 1")).toHaveValue("Orange Juice");
+
+    await user.click(screen.getByRole("button", { name: "删除第 2 行" }));
+    expect(screen.queryByTestId("purchase-review-row-2")).not.toBeInTheDocument();
+    expect(screen.getByTestId("purchase-review-row-1")).toBeInTheDocument();
+    expect(screen.getByLabelText("产品名称 1")).toHaveValue("Orange Juice");
+
+    const handoffButton = screen.getByRole("button", { name: "转入下单模块" });
+    await user.click(handoffButton);
+
+    await waitFor(() => {
+      expect(readyForPurchase).toHaveBeenCalledWith(
+        "intake-1",
+        expect.arrayContaining([expect.objectContaining({ clientId: expect.any(String), supplierProductId: "BRK-ORANGE" })])
+      );
+      expect(readyForPurchase.mock.calls[0][1]).toHaveLength(1);
+      expect(importReadyIntake).toHaveBeenCalledWith("intake-1");
+      expect(window.location.hash).toBe("#ordering");
+    });
   });
 
   it("disables all review controls while savePendingIntake is pending and re-enables after resolve", async () => {
     const user = userEvent.setup();
-    searchHistoricalProducts.mockResolvedValue({ candidates: [] });
+    searchHistoricalProducts
+      .mockResolvedValueOnce({
+        candidates: [
+          {
+            id: "BRK-ORANGE",
+            isRecommended: true,
+            productName: "Orange Juice",
+            supplierName: "Brakes",
+            supplierCode: "BRK",
+            supplierProductCode: "OJ-1",
+            packSize: "4x2.5L",
+            latestPrice: 24.5,
+            purchaseCount: 10,
+            latestPurchaseDate: "2026-07-01",
+            currentInventoryQuantity: 7
+          }
+        ]
+      })
+      .mockResolvedValueOnce({ candidates: [] });
     let resolveSavePending: (value: { status: string; intakeId: string; items: never[] }) => void;
     savePendingIntake.mockImplementationOnce(
       () =>
@@ -554,20 +715,17 @@ describe("PurchasingPage recognition and review", () => {
     await user.click(screen.getByRole("button", { name: "开始识别" }));
     await user.click(screen.getByRole("button", { name: "匹配发票商品 橙汁" }));
     const firstPendingDialog = await screen.findByRole("dialog", { name: "匹配发票商品 橙汁" });
-    await user.click(within(firstPendingDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    await user.click(within(firstPendingDialog).getByRole("button", { name: "选择 Orange Juice" }));
+    await user.click(within(firstPendingDialog).getByRole("button", { name: "关闭商品匹配" }));
     await user.click(screen.getByRole("button", { name: /匹配发票商品 高档牛奶/ }));
     const secondPendingDialog = await screen.findByRole("dialog", { name: "匹配发票商品 高档牛奶" });
-    await user.click(within(secondPendingDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    await user.click(within(secondPendingDialog).getByRole("button", { name: "关闭商品匹配" }));
+    await user.click(screen.getByRole("button", { name: "删除第 2 行" }));
 
     const saveDraftButton = screen.getByRole("button", { name: "保存草稿" });
     const handoffButton = screen.getByRole("button", { name: "转入下单模块" });
     const addRowButton = screen.getByRole("button", { name: "新增一行" });
-    const departmentInput = screen.getByLabelText("部门 1");
     const productInput = screen.getByLabelText("产品名称 1");
-    const quantityInput = screen.getByLabelText("数量 1");
-    const unitInput = screen.getByLabelText("单位 1");
-    const notesInput = screen.getByLabelText("备注 1");
-    const reviewCheck = screen.getByRole("checkbox", { name: /已人工核对 1/ });
     const firstRow = screen.getByTestId("purchase-review-row-1");
     const removeRowButton = within(firstRow).getByRole("button", { name: /删除第 1 行/ });
     const matchButton = within(firstRow).getByRole("button", { name: /匹配发票商品/ });
@@ -578,29 +736,20 @@ describe("PurchasingPage recognition and review", () => {
     expect(saveDraftButton).toBeDisabled();
     expect(handoffButton).toBeDisabled();
     expect(addRowButton).toBeDisabled();
-    expect(departmentInput).toBeDisabled();
     expect(productInput).toBeDisabled();
-    expect(quantityInput).toBeDisabled();
-    expect(unitInput).toBeDisabled();
-    expect(notesInput).toBeDisabled();
-    expect(reviewCheck).toBeDisabled();
     expect(matchButton).toBeDisabled();
     expect(removeRowButton).toBeDisabled();
 
-    expect(screen.getAllByTestId(/purchase-review-row-/)).toHaveLength(2);
+    expect(screen.getAllByTestId(/purchase-review-row-/)).toHaveLength(1);
     await user.click(addRowButton);
     await user.click(removeRowButton);
     await user.click(matchButton);
     await user.click(saveDraftButton);
     await user.click(handoffButton);
     expect(savePendingIntake).toHaveBeenCalledTimes(1);
-    expect(screen.getAllByTestId(/purchase-review-row-/)).toHaveLength(2);
+    expect(screen.getAllByTestId(/purchase-review-row-/)).toHaveLength(1);
 
-    expect(departmentInput).toHaveValue("厨房");
-    expect(productInput).toHaveValue("橙汁");
-    expect(quantityInput).toHaveValue(2);
-    expect(unitInput).toHaveValue("箱");
-    expect(notesInput).toHaveValue("");
+    expect(productInput).toHaveValue("Orange Juice");
 
     resolveSavePending!({
       status: "Pending",
@@ -613,17 +762,29 @@ describe("PurchasingPage recognition and review", () => {
     expect(saveDraftButton).not.toBeDisabled();
     expect(handoffButton).not.toBeDisabled();
     expect(addRowButton).not.toBeDisabled();
-    expect(departmentInput).not.toBeDisabled();
-    expect(reviewCheck).not.toBeDisabled();
-
-    await user.clear(departmentInput);
-    await user.type(departmentInput, "宴会");
-    expect(departmentInput).toHaveValue("宴会");
   });
 
   it("disables review controls while readyForPurchase is pending and locks terminally after resolve", async () => {
     const user = userEvent.setup();
-    searchHistoricalProducts.mockResolvedValue({ candidates: [] });
+    searchHistoricalProducts
+      .mockResolvedValueOnce({
+        candidates: [
+          {
+            id: "BRK-ORANGE",
+            isRecommended: true,
+            productName: "Orange Juice",
+            supplierName: "Brakes",
+            supplierCode: "BRK",
+            supplierProductCode: "OJ-1",
+            packSize: "4x2.5L",
+            latestPrice: 24.5,
+            purchaseCount: 10,
+            latestPurchaseDate: "2026-07-01",
+            currentInventoryQuantity: 7
+          }
+        ]
+      })
+      .mockResolvedValueOnce({ candidates: [] });
     let resolveReady: (value: { status: string; intakeId: string }) => void;
     readyForPurchase.mockImplementationOnce(
       () =>
@@ -644,20 +805,17 @@ describe("PurchasingPage recognition and review", () => {
     await user.click(screen.getByRole("button", { name: "开始识别" }));
     await user.click(screen.getByRole("button", { name: "匹配发票商品 橙汁" }));
     const firstReadyDialog = await screen.findByRole("dialog", { name: "匹配发票商品 橙汁" });
-    await user.click(within(firstReadyDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    await user.click(within(firstReadyDialog).getByRole("button", { name: "选择 Orange Juice" }));
+    await user.click(within(firstReadyDialog).getByRole("button", { name: "关闭商品匹配" }));
     await user.click(screen.getByRole("button", { name: /匹配发票商品 高档牛奶/ }));
     const secondReadyDialog = await screen.findByRole("dialog", { name: "匹配发票商品 高档牛奶" });
-    await user.click(within(secondReadyDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    await user.click(within(secondReadyDialog).getByRole("button", { name: "关闭商品匹配" }));
+    await user.click(screen.getByRole("button", { name: "删除第 2 行" }));
 
     const saveDraftButton = screen.getByRole("button", { name: "保存草稿" });
     const handoffButton = screen.getByRole("button", { name: "转入下单模块" });
     const addRowButton = screen.getByRole("button", { name: "新增一行" });
-    const departmentInput = screen.getByLabelText("部门 1");
     const productInput = screen.getByLabelText("产品名称 1");
-    const quantityInput = screen.getByLabelText("数量 1");
-    const unitInput = screen.getByLabelText("单位 1");
-    const notesInput = screen.getByLabelText("备注 1");
-    const reviewCheck = screen.getByRole("checkbox", { name: /已人工核对 1/ });
     const firstRow = screen.getByTestId("purchase-review-row-1");
     const removeRowButton = within(firstRow).getByRole("button", { name: /删除第 1 行/ });
     const matchButton = within(firstRow).getByRole("button", { name: /匹配发票商品/ });
@@ -668,16 +826,11 @@ describe("PurchasingPage recognition and review", () => {
     expect(handoffButton).toBeDisabled();
     expect(saveDraftButton).toBeDisabled();
     expect(addRowButton).toBeDisabled();
-    expect(departmentInput).toBeDisabled();
     expect(productInput).toBeDisabled();
-    expect(quantityInput).toBeDisabled();
-    expect(unitInput).toBeDisabled();
-    expect(notesInput).toBeDisabled();
-    expect(reviewCheck).toBeDisabled();
     expect(matchButton).toBeDisabled();
     expect(removeRowButton).toBeDisabled();
 
-    expect(screen.getAllByTestId(/purchase-review-row-/)).toHaveLength(2);
+    expect(screen.getAllByTestId(/purchase-review-row-/)).toHaveLength(1);
     await user.click(addRowButton);
     await user.click(removeRowButton);
     await user.click(matchButton);
@@ -685,7 +838,7 @@ describe("PurchasingPage recognition and review", () => {
     await user.click(handoffButton);
     await user.click(saveDraftButton);
     expect(readyForPurchase).toHaveBeenCalledTimes(1);
-    expect(screen.getAllByTestId(/purchase-review-row-/)).toHaveLength(2);
+    expect(screen.getAllByTestId(/purchase-review-row-/)).toHaveLength(1);
 
     await act(async () => {
       resolveReady!({
@@ -701,15 +854,31 @@ describe("PurchasingPage recognition and review", () => {
     expect(saveDraftButton).toBeDisabled();
     expect(handoffButton).toBeDisabled();
     expect(addRowButton).toBeDisabled();
-    expect(departmentInput).toBeDisabled();
-    expect(reviewCheck).toBeDisabled();
     expect(matchButton).toBeDisabled();
     expect(removeRowButton).toBeDisabled();
   });
 
   it("locks review controls in terminal state after ready-for-purchase and prevents duplicate submit operations", async () => {
     const user = userEvent.setup();
-    searchHistoricalProducts.mockResolvedValue({ candidates: [] });
+    searchHistoricalProducts
+      .mockResolvedValueOnce({
+        candidates: [
+          {
+            id: "BRK-ORANGE",
+            isRecommended: true,
+            productName: "Orange Juice",
+            supplierName: "Brakes",
+            supplierCode: "BRK",
+            supplierProductCode: "OJ-1",
+            packSize: "4x2.5L",
+            latestPrice: 24.5,
+            purchaseCount: 10,
+            latestPurchaseDate: "2026-07-01",
+            currentInventoryQuantity: 7
+          }
+        ]
+      })
+      .mockResolvedValueOnce({ candidates: [] });
     render(<PurchasingPage />);
     const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
 
@@ -717,10 +886,12 @@ describe("PurchasingPage recognition and review", () => {
     await user.click(screen.getByRole("button", { name: "开始识别" }));
     await user.click(screen.getByRole("button", { name: "匹配发票商品 橙汁" }));
     const firstTerminalDialog = await screen.findByRole("dialog", { name: "匹配发票商品 橙汁" });
-    await user.click(within(firstTerminalDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    await user.click(within(firstTerminalDialog).getByRole("button", { name: "选择 Orange Juice" }));
+    await user.click(within(firstTerminalDialog).getByRole("button", { name: "关闭商品匹配" }));
     await user.click(screen.getByRole("button", { name: /匹配发票商品 高档牛奶/ }));
     const secondTerminalDialog = await screen.findByRole("dialog", { name: "匹配发票商品 高档牛奶" });
-    await user.click(within(secondTerminalDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    await user.click(within(secondTerminalDialog).getByRole("button", { name: "关闭商品匹配" }));
+    await user.click(screen.getByRole("button", { name: "删除第 2 行" }));
 
     await user.click(screen.getByRole("button", { name: "转入下单模块" }));
 

@@ -243,9 +243,10 @@ export function installOrderingRoutes(server: OrderingMiddlewareServer, options:
         if (brakesItems.some((item) => !item.supplierProductCode?.trim())) {
           throw new PurchasingApiError("INVALID_ORDERING_DATA");
         }
-        if (brakesItems.some((item) => !Number.isFinite(item.orderQuantity) || item.orderQuantity <= 0)) {
+        if (brakesItems.some((item) => item.orderQuantity === null || !Number.isFinite(item.orderQuantity) || item.orderQuantity <= 0)) {
           throw new PurchasingApiError("INVALID_ORDER_QUANTITY");
         }
+        const brakesItemsWithQuantity = brakesItems as Array<(typeof brakesItems)[number] & { orderQuantity: number }>;
         const prepared = prepareSupplierGroup(options.database, {
           batchId,
           supplierCode: "BRK",
@@ -256,7 +257,7 @@ export function installOrderingRoutes(server: OrderingMiddlewareServer, options:
           return;
         }
         if (prepared.kind !== "brakes-ready" || !quickAdd) throw new PurchasingApiError("INVALID_ORDERING_DATA");
-        const queue = buildRetryQueue(brakesItems.map((item) => ({
+        const queue = buildRetryQueue(brakesItemsWithQuantity.map((item) => ({
           itemId: item.id,
           productCode: item.supplierProductCode || "",
           quantity: item.orderQuantity,
@@ -388,9 +389,6 @@ function canonicalIntakeRow(
   item: ReturnType<typeof getOrderingIntakeForTransfer>["items"][number],
   candidates: HistoricalProductCandidate[]
 ) {
-  if (!Number.isFinite(item.quantity) || item.quantity === null || item.quantity <= 0) {
-    throw new PurchasingApiError("INVALID_ORDER_QUANTITY");
-  }
   if (item.supplierProductId) {
     return {
       id: item.id,
@@ -425,7 +423,7 @@ function requireCandidate(candidates: HistoricalProductCandidate[], supplierProd
 
 function matchedDatabaseInput(
   candidate: HistoricalProductCandidate & { supplierCode: Exclude<SupplierGroup, "UNMATCHED"> },
-  orderQuantity: number
+  orderQuantity: number | null
 ) {
   return {
     productName: candidate.productName,

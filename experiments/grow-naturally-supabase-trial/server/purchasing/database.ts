@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { WhiteboardReviewItem } from "../../src/purchasing/types";
 import { PurchasingApiError } from "./errors";
-import { migratePurchaseIntakesForOrdering, orderingSchema } from "../ordering/schema";
+import { migrateOrderingBatchQuantity, migratePurchaseIntakesForOrdering, orderingSchema } from "../ordering/schema";
 import {
   purchaseIntakeSchema,
   type HandOffIntakeInput,
@@ -110,6 +110,7 @@ export function createPurchasingDatabase(path: string | Database.Database): Data
   migratePurchaseIntakesForOrdering(database);
   database.exec(schema);
   database.exec(orderingSchema);
+  migrateOrderingBatchQuantity(database);
   return database;
 }
 

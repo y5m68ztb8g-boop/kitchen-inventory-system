@@ -99,7 +99,7 @@ export function ProductMatchDialog({ itemName, onChoose, onClose, returnFocusEle
 
         {loading && <p className="product-match-message">正在搜索...</p>}
         {error && <p className="product-match-error" role="alert">{error}</p>}
-        {!loading && !error && products.length === 0 && <p className="product-match-message">近半年没有找到历史采购记录，当前商品未出现在发票中。请手动确认，或直接录入未匹配商品。</p>}
+        {!loading && !error && products.length === 0 && <p className="product-match-message">近半年没有找到历史采购记录，当前商品未出现在发票中。请删除此行，或在下单页手动录入。</p>}
 
         <div className="product-match-results">
           {products.map((product) => {

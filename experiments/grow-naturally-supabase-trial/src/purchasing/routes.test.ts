@@ -950,6 +950,57 @@ describe("purchasing API routes", () => {
     }
   });
 
+  it.each(["SEA-B", "SEAB", "SEA B"])(
+    "normalizes separators and spaces for historical-products query %s to match the same item",
+    async (query) => {
+      const route = invokePurchasingRoute({
+        method: "GET",
+        url: `/api/purchasing/historical-products?query=${encodeURIComponent(query)}`,
+        options: {
+          historicalCandidates: () => [
+            {
+              id: "BRK-SEABASS",
+              latestPrice: 21,
+              latestPurchaseDate: "2026-07-01",
+              packSize: "4x2.5kg",
+              productName: "Sea Bass",
+              purchaseCount: 12,
+              supplierCode: "BRK",
+              supplierName: "Brakes",
+              supplierProductCode: "SB-1"
+            },
+            {
+              id: "BRK-OTHER",
+              latestPrice: 6,
+              latestPurchaseDate: "2026-07-01",
+              packSize: "12x1kg",
+              productName: "Chicken Breast",
+              purchaseCount: 1,
+              supplierCode: "BRK",
+              supplierName: "Brakes",
+              supplierProductCode: "CB-1"
+            }
+          ]
+        }
+      });
+
+      try {
+        const payload = await route.readJson();
+        expect(route.response.statusCode).toBe(200);
+        const candidates = parseHistoricalCandidates(payload) as Array<{ id: string; productName: string }>;
+
+        expect(candidates).toHaveLength(1);
+        expect(candidates[0]).toMatchObject({
+          id: "BRK-SEABASS",
+          productName: "Sea Bass",
+          supplierProductCode: "SB-1"
+        });
+      } finally {
+        route.database.close();
+      }
+    }
+  );
+
   it("does not return apple juice concentrate for fresh orange juice from shared juice fallback", async () => {
     const { baseUrl } = routeOptions({
       historicalCandidates: () => [

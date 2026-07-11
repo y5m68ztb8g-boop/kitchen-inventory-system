@@ -39,6 +39,19 @@ const orangeCandidate = {
   supplierName: "Brakes",
   supplierProductCode: "OJ-1"
 };
+const sheetCandidate = {
+  currentInventoryQuantity: 3,
+  id: "BRK-BREAD-001",
+  isRecommended: true,
+  latestPrice: 11,
+  latestPurchaseDate: "2026-07-01",
+  packSize: "1 case",
+  productName: "Bread rolls",
+  purchaseCount: 8,
+  supplierCode: "BRK",
+  supplierName: "Brakes",
+  supplierProductCode: "BR-1"
+};
 
 test.describe("purchasing information intake", () => {
   test("mobile-friendly photo intake reviews, matches and hands off a purchase request", async ({ page }) => {
@@ -86,8 +99,8 @@ test.describe("purchasing information intake", () => {
 
     await expect(page.getByRole("heading", { name: "核对采购项目" })).toBeVisible();
     await expect(page.getByTestId("purchase-review-row-1")).toHaveClass(/purchase-review-row-low-confidence/);
+    await expect(page.getByText("未匹配历史发票商品", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "转入下单模块" })).toBeDisabled();
-    await page.getByLabel("已人工核对 1").check();
 
     await page.getByRole("button", { name: "匹配发票商品 orange" }).click();
     await expect(page.getByText("推荐购买", { exact: true })).toBeVisible();
@@ -112,6 +125,8 @@ test.describe("purchasing information intake", () => {
   });
 
   test("manual spreadsheet intake keeps an unknown quantity blank", async ({ page }) => {
+    let readyBody: { items?: Array<Record<string, unknown>> } | null = null;
+
     await page.route("**/api/purchasing/intakes/parse", (route) =>
       route.fulfill({
         json: {
@@ -136,6 +151,29 @@ test.describe("purchasing information intake", () => {
         status: 201
       })
     );
+    await page.route("**/api/purchasing/intakes/intake-e2e-sheet/ready-for-purchase", async (route) => {
+      readyBody = route.request().postDataJSON();
+      await route.fulfill({ json: { intakeId: "intake-e2e-sheet", status: "ReadyForPurchase" }, status: 200 });
+    });
+    await page.route("**/api/ordering/current/intakes/*", async (route) => {
+      await route.fulfill({
+        json: {
+          batch: {
+            id: "batch-task-5",
+            poNumber: "",
+            status: "Draft",
+            items: [],
+            suppliers: [],
+            supplierGroups: []
+          },
+          readyIntakes: []
+        },
+        status: 200
+      });
+    });
+    await page.route("**/api/purchasing/historical-products?query=*", (route) =>
+      route.fulfill({ json: { candidates: [sheetCandidate], query: "Bread rolls" }, status: 200 })
+    );
 
     await page.goto("/#purchasing");
     await page.getByLabel("选择手动上传文件").setInputFiles({
@@ -150,8 +188,18 @@ test.describe("purchasing information intake", () => {
     await page.getByRole("button", { name: "开始识别" }).click();
 
     await expect(page.getByLabel("产品名称 1")).toHaveValue("Bread rolls");
-    await expect(page.getByLabel("数量 1")).toHaveValue("");
     await expect(page.getByText("未匹配历史发票商品", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "匹配发票商品 Bread rolls" }).click();
+    await expect(page.getByText("推荐购买", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "选择 Bread rolls" }).click();
+    await page.getByRole("button", { name: "转入下单模块" }).click();
+    await expect(page).toHaveURL(/#ordering$/);
+    expect(readyBody).toEqual(
+      expect.objectContaining({
+        items: [expect.objectContaining({ supplierProductId: "BRK-BREAD-001", product_name: "Bread rolls" })]
+      })
+    );
     await expectNoHorizontalOverflow(page);
   });
 });

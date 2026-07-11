@@ -28,7 +28,7 @@ export const orderingSchema = `
     supplier_product_code TEXT,
     supplier_name TEXT,
     pack_size TEXT,
-    order_quantity REAL NOT NULL CHECK (order_quantity > 0),
+    order_quantity REAL CHECK (order_quantity IS NULL OR order_quantity > 0),
     order_unit TEXT NOT NULL,
     last_price REAL,
     purchase_count INTEGER,
@@ -66,6 +66,54 @@ export const orderingSchema = `
     FOREIGN KEY (item_id) REFERENCES purchase_batch_items(id) ON DELETE CASCADE
   );
 `;
+
+export function migrateOrderingBatchQuantity(database: Database.Database): void {
+  const column = database
+    .prepare("PRAGMA table_info(purchase_batch_items)")
+    .all()
+    .find((entry) => (entry as { name?: string }).name === "order_quantity") as { notnull?: number } | undefined;
+
+  if (!column?.notnull) return;
+
+  database.pragma("foreign_keys = OFF");
+  try {
+    database.transaction(() => {
+      database.exec(`
+        CREATE TABLE purchase_batch_items_quantity_migration (
+          id TEXT PRIMARY KEY,
+          batch_id TEXT NOT NULL,
+          row_order INTEGER NOT NULL,
+          product_name TEXT NOT NULL,
+          supplier_group TEXT NOT NULL CHECK (supplier_group IN ('CMP', 'MM', 'BRK', 'UNMATCHED')),
+          supplier_product_id TEXT,
+          supplier_product_code TEXT,
+          supplier_name TEXT,
+          pack_size TEXT,
+          order_quantity REAL CHECK (order_quantity IS NULL OR order_quantity > 0),
+          order_unit TEXT NOT NULL,
+          last_price REAL,
+          purchase_count INTEGER,
+          latest_purchase_date TEXT,
+          brakes_status TEXT NOT NULL CHECK (brakes_status IN ('Pending', 'Added', 'AwaitingConfirmation', 'InvalidCode', 'Failed')),
+          brakes_message TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (batch_id) REFERENCES purchase_batches(id) ON DELETE CASCADE
+        );
+        INSERT INTO purchase_batch_items_quantity_migration
+          SELECT id, batch_id, row_order, product_name, supplier_group, supplier_product_id,
+                 supplier_product_code, supplier_name, pack_size, order_quantity, order_unit,
+                 last_price, purchase_count, latest_purchase_date, brakes_status, brakes_message,
+                 created_at, updated_at
+            FROM purchase_batch_items;
+        DROP TABLE purchase_batch_items;
+        ALTER TABLE purchase_batch_items_quantity_migration RENAME TO purchase_batch_items;
+      `);
+    })();
+  } finally {
+    database.pragma("foreign_keys = ON");
+  }
+}
 
 const migratedIntakeSchema = `
   CREATE TABLE purchase_intakes_ordering_migration (

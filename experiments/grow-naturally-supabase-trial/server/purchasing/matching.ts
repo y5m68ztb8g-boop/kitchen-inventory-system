@@ -130,6 +130,8 @@ export function normaliseProductName(value: string) {
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
     .replace(/\s+/g, " ")
+    .replace(/\bsea\s*b(?:ass)?\b/g, "seabass")
+    .replace(/\bseab(?:ass)?\b/g, "seabass")
     .replace(/\bwashing up liquid\b/g, "dishsoap")
     .replace(/\bdish soap\b/g, "dishsoap")
     .replace(/\bsea bass\b/g, "seabass")

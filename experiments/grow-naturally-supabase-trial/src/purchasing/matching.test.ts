@@ -40,6 +40,17 @@ describe("normaliseProductName", () => {
   });
 
   it.each([
+    ["SEA-B", "seabass"],
+    ["sea-bass", "seabass"],
+    ["sea bass", "seabass"],
+    ["  sea   bass  ", "seabass"],
+    ["SEAB", "seabass"],
+    ["SEA B", "seabass"]
+  ])("normalises sea bass and separators for query variants (%s)", (query, normalized) => {
+    expect(normaliseProductName(query)).toBe(normalized);
+  });
+
+  it.each([
     ["chunky chips", "chunky fries"],
     ["seeded rolls", "seeded buns"],
     ["roast potatoes", "roast spuds"],

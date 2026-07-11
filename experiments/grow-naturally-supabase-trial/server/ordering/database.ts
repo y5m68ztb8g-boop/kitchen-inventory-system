@@ -19,9 +19,10 @@ export type * from "./types";
 
 type SupplierCode = Exclude<SupplierGroup, "UNMATCHED">;
 
-export type CanonicalOrderingIntakeRow = Omit<AddBatchItemInput, "batchId" | "id"> & {
+export type CanonicalOrderingIntakeRow = Omit<AddBatchItemInput, "batchId" | "id" | "orderQuantity"> & {
   id: string;
   rowOrder: number;
+  orderQuantity: number | null;
 };
 
 export type OrderingIntakeForTransfer = {
@@ -66,7 +67,7 @@ export type AddBatchItemInput = {
   supplierProductCode?: string | null;
   supplierName?: string | null;
   packSize?: string | null;
-  orderQuantity: number;
+  orderQuantity: number | null;
   orderUnit: string;
   lastPrice?: number | null;
   purchaseCount?: number | null;
@@ -297,7 +298,7 @@ export function addReadyIntakeToBatch(database: Database.Database, input: AddRea
         supplierProductCode: row.supplierProductCode,
         supplierName: row.supplierName,
         packSize: row.packSize,
-        orderQuantity: row.quantity ?? Number.NaN,
+        orderQuantity: row.quantity,
         orderUnit: orderUnitFor(row.unit, row.packSize),
         lastPrice: row.lastPrice,
         purchaseCount: row.purchaseCount,
@@ -322,9 +323,6 @@ export function addReadyIntakeToBatch(database: Database.Database, input: AddRea
     );
 
     for (const row of rows) {
-      if (!Number.isFinite(row.orderQuantity) || row.orderQuantity <= 0) {
-        throw new OrderingDatabaseError("INVALID_ORDER_QUANTITY");
-      }
       insertItem.run(
         `${input.intakeId}:${row.id}`,
         input.batchId,
@@ -553,6 +551,10 @@ export function prepareSupplierGroup(
   const batch = getBatchDetail(database, input.batchId);
   const items = batch.items.filter((item) => item.supplierGroup === input.supplierCode);
   if (items.length === 0) throw new OrderingDatabaseError("SUPPLIER_NOT_IN_BATCH");
+  if (items.some((item) => item.orderQuantity === null || !Number.isFinite(item.orderQuantity) || item.orderQuantity <= 0)) {
+    throw new OrderingDatabaseError("INVALID_ORDER_QUANTITY");
+  }
+  const itemsWithQuantity = items as Array<PurchaseBatchItem & { orderQuantity: number }>;
 
   const checks = database
     .prepare(
@@ -582,7 +584,7 @@ export function prepareSupplierGroup(
   if (input.supplierCode === "BRK") {
     return {
       kind: "brakes-ready",
-      items: items.map((item) => {
+      items: itemsWithQuantity.map((item) => {
         if (!item.supplierProductCode) throw new Error("Brakes product code required");
         return { itemId: item.id, productCode: item.supplierProductCode, quantity: item.orderQuantity };
       })
@@ -595,7 +597,7 @@ export function prepareSupplierGroup(
       supplierCode: input.supplierCode,
       poNumber: batch.poNumber,
       profile: getOrderingProfile(database),
-      items
+      items: itemsWithQuantity
     })
   };
 }
@@ -734,10 +736,11 @@ function orderUnitFor(unit: string | null, packSize: string | null): string {
   return packSize?.trim() || unit?.trim() || "unit";
 }
 
-function validateOrderItem(input: Pick<AddBatchItemInput, "productName" | "orderQuantity" | "orderUnit">): void {
+function validateOrderItem(input: Pick<AddBatchItemInput, "productName" | "orderUnit"> & { orderQuantity: number | null }): void {
   if (
     typeof input.productName !== "string" ||
     input.productName.trim().length === 0 ||
+    input.orderQuantity === null ||
     !Number.isFinite(input.orderQuantity) ||
     input.orderQuantity <= 0 ||
     typeof input.orderUnit !== "string" ||
