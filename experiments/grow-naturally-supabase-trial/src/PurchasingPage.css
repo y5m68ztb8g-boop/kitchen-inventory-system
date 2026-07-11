@@ -176,6 +176,14 @@
   margin: 6px 0 0;
 }
 
+.purchase-review-warning {
+  background: #fff7df;
+  border-left: 3px solid #bf7900;
+  color: #6b4a0c;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+}
+
 .purchasing-source-button,
 .purchase-review-actions button {
   align-items: center;

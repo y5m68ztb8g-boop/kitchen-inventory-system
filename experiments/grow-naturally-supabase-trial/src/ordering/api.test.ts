@@ -5,6 +5,7 @@ const orderingApiErrorMessages = {
   INVALID_ORDER_QUANTITY: "订购数量无效，请填写大于 0 的数字。",
   SUPPLIER_PRODUCT_NOT_FOUND: "未找到对应历史商品，商品信息已过期。",
   INTAKE_ALREADY_ADDED: "该采购清单已转入下单模块。",
+  INTAKE_NOT_READY_FOR_ORDER: "该采购清单尚未准备好转入下单模块。",
   ORDER_BATCH_NOT_FOUND: "当前下单批次不存在。"
 } as const;
 
@@ -136,11 +137,12 @@ describe("ordering api", () => {
             ? () => api.addOrderingItem("batch-1", { supplierProductId: "BRK-100243", orderQuantity: 0 })
             : code === "INTAKE_ALREADY_ADDED"
               ? () => api.importReadyIntake("intake-1")
-              : () => api.updateOrderingItem("missing-batch", "item-1", { orderQuantity: 2 });
+              : code === "INTAKE_NOT_READY_FOR_ORDER"
+                ? () => api.importReadyIntake("intake-1")
+                : () => api.updateOrderingItem("missing-batch", "item-1", { orderQuantity: 2 });
 
       await expect(fn()).rejects.toThrow(message);
       expect(fetchMock).toHaveBeenCalled();
     }
   );
 });
-

@@ -1,4 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
+import { act } from "react-dom/test-utils";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -40,6 +41,7 @@ describe("PurchasingPage intake hub", () => {
     parseIntake.mockReset();
     savePendingIntake.mockReset();
     readyForPurchase.mockReset();
+    importReadyIntake.mockReset();
     importReadyIntake.mockReset();
     searchHistoricalProducts.mockReset();
 
@@ -204,6 +206,11 @@ describe("PurchasingPage recognition and review", () => {
     parseIntake.mockClear();
     savePendingIntake.mockReset();
     readyForPurchase.mockReset();
+    importReadyIntake.mockReset().mockResolvedValue({
+      batch: { id: "batch-task-5" },
+      readyIntakes: [],
+      intakeStatus: "AddedToOrder"
+    });
     searchHistoricalProducts.mockReset().mockResolvedValue({
       candidates: [
         {
@@ -244,6 +251,7 @@ describe("PurchasingPage recognition and review", () => {
 
   it("requires manual review for low-confidence items and supports row edit, remove and add", async () => {
     const user = userEvent.setup();
+    searchHistoricalProducts.mockResolvedValue({ candidates: [] });
     render(<PurchasingPage />);
     const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
 
@@ -268,9 +276,17 @@ describe("PurchasingPage recognition and review", () => {
     await user.click(screen.getByRole("button", { name: "新增一行" }));
 
     expect(screen.getByLabelText("产品名称 2")).toHaveValue("");
-    expect(screen.getByRole("checkbox", { name: /已人工核对 2/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /已人工核对 2/ })).not.toBeChecked();
+    const firstRow = screen.getByTestId("purchase-review-row-1");
+    const secondRow = screen.getByTestId("purchase-review-row-2");
+    await user.click(within(firstRow).getByRole("button", { name: /匹配发票商品/ }));
+    const firstMatchDialog = await screen.findByRole("dialog", { name: /匹配发票商品/ });
+    await user.click(within(firstMatchDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    await user.click(within(secondRow).getByRole("button", { name: /匹配发票商品/ }));
+    const secondMatchDialog = await screen.findByRole("dialog", { name: /匹配发票商品/ });
+    await user.click(within(secondMatchDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    await user.click(within(secondRow).getByRole("button", { name: /删除第 2 行/ }));
 
-    await user.click(screen.getByRole("checkbox", { name: /已人工核对 1/ }));
     await user.click(screen.getByRole("button", { name: "保存草稿" }));
 
     expect(savePendingIntake).toHaveBeenCalledWith(
@@ -312,6 +328,65 @@ describe("PurchasingPage recognition and review", () => {
 
     await user.click(screen.getByRole("button", { name: "清除匹配" }));
     expect(screen.getByLabelText("产品名称 1")).toHaveValue("Orange Juice");
+  });
+
+  it.each([
+    { quantity: null, label: "null" },
+    { quantity: 0, label: "0" }
+  ])("blocks handoff when review quantity is $label and shows quantity hint", async ({ quantity }) => {
+    const user = userEvent.setup();
+    parseIntake.mockResolvedValue({
+      sourceType: "image",
+      sourceUrl: "/api/purchasing/intakes/intake-1/source",
+      originalFilename: "invoice.jpg",
+      intakeId: "intake-1",
+      items: [
+        {
+          confidence: 0.95,
+          department: "厨房",
+          notes: null,
+          product_name: "橙汁",
+          quantity,
+          raw_text: quantity === null ? "未识别到数量 橙汁" : "2箱橙汁",
+          unit: "箱"
+        }
+      ],
+      unreadableText: [],
+      generalNotes: null
+    });
+    searchHistoricalProducts.mockResolvedValue({
+      candidates: [
+        {
+          id: "BRK-ORANGE",
+          isRecommended: true,
+          productName: "Orange Juice",
+          supplierName: "Brakes",
+          supplierCode: "BRK",
+          supplierProductCode: "OJ-1",
+          packSize: "4x2.5L",
+          latestPrice: 24.5,
+          purchaseCount: 10,
+          latestPurchaseDate: "2026-07-01",
+          currentInventoryQuantity: 7
+        }
+      ]
+    });
+
+    render(<PurchasingPage />);
+    const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
+
+    await user.upload(cameraInput, new File(["invoice"], "invoice.jpg", { type: "image/jpeg" }));
+    await user.click(screen.getByRole("button", { name: "开始识别" }));
+
+    await user.click(screen.getByRole("button", { name: "匹配发票商品 橙汁" }));
+    await user.click(screen.getByRole("button", { name: "选择 Orange Juice" }));
+    const handoffButton = screen.getByRole("button", { name: "转入下单模块" });
+    expect(handoffButton).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/缺少有效数量/);
+
+    await user.click(handoffButton);
+    expect(readyForPurchase).not.toHaveBeenCalled();
+    expect(importReadyIntake).not.toHaveBeenCalled();
   });
 
   it("preserves matchQueryName on save payload while saving canonical match product name", async () => {
@@ -380,18 +455,24 @@ describe("PurchasingPage recognition and review", () => {
 
   it("transitions pending save and keeps review state before handoff", async () => {
     const user = userEvent.setup();
+    searchHistoricalProducts.mockResolvedValue({ candidates: [] });
     render(<PurchasingPage />);
     const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
 
     await user.upload(cameraInput, new File(["whiteboard"], "invoice.jpg", { type: "image/jpeg" }));
     await user.click(screen.getByRole("button", { name: "开始识别" }));
+    await user.click(screen.getByRole("button", { name: "匹配发票商品 橙汁" }));
+    const firstConfirmDialog = await screen.findByRole("dialog", { name: "匹配发票商品 橙汁" });
+    await user.click(within(firstConfirmDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    await user.click(screen.getByRole("button", { name: /匹配发票商品 高档牛奶/ }));
+    const secondConfirmDialog = await screen.findByRole("dialog", { name: "匹配发票商品 高档牛奶" });
+    await user.click(within(secondConfirmDialog).getByRole("button", { name: "确认未找到历史商品" }));
 
-    await user.click(screen.getByRole("checkbox", { name: /已人工核对 1/ }));
     await user.click(screen.getByRole("button", { name: "保存草稿" }));
 
     expect(savePendingIntake).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole("button", { name: "转入采购清单" }));
+    await user.click(screen.getByRole("button", { name: "转入下单模块" }));
 
     expect(readyForPurchase).toHaveBeenCalledWith(
       "intake-1",
@@ -403,28 +484,61 @@ describe("PurchasingPage recognition and review", () => {
         })
       ])
     );
-    expect(screen.getByText("已转入采购清单")).toBeInTheDocument();
-    expect(screen.getAllByText("待匹配")).toHaveLength(2);
+    expect(importReadyIntake).toHaveBeenCalledWith("intake-1");
+    expect(window.location.hash).toBe("#ordering");
   });
 
   it("offers ordering handoff after AI intake success, imports once and navigates to ordering", async () => {
     const user = userEvent.setup();
+    searchHistoricalProducts.mockResolvedValue({ candidates: [] });
     window.location.hash = "#purchasing";
     render(<PurchasingPage />);
 
     await user.upload(screen.getByLabelText(/拍照|camera|摄像/i), new File(["whiteboard"], "invoice.jpg", { type: "image/jpeg" }));
     await user.click(screen.getByRole("button", { name: "开始识别" }));
-    await user.click(screen.getByRole("checkbox", { name: /已人工核对 1/ }));
-    await user.click(screen.getByRole("button", { name: "转入采购清单" }));
-    await user.click(await screen.findByRole("button", { name: "转入下单模块" }));
+    await user.click(screen.getByRole("button", { name: "匹配发票商品 橙汁" }));
+    const firstConfirmDialog = await screen.findByRole("dialog", { name: "匹配发票商品 橙汁" });
+    await user.click(within(firstConfirmDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    await user.click(screen.getByRole("button", { name: /匹配发票商品 高档牛奶/ }));
+    const secondConfirmDialog = await screen.findByRole("dialog", { name: "匹配发票商品 高档牛奶" });
+    await user.click(within(secondConfirmDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    await user.click(screen.getByRole("button", { name: "转入下单模块" }));
 
-    expect(importReadyIntake).toHaveBeenCalledTimes(1);
-    expect(importReadyIntake).toHaveBeenCalledWith("intake-1");
-    expect(window.location.hash).toBe("#ordering");
+    await waitFor(() => {
+      expect(importReadyIntake).toHaveBeenCalledTimes(1);
+      expect(importReadyIntake).toHaveBeenCalledWith("intake-1");
+      expect(readyForPurchase).toHaveBeenCalledTimes(1);
+      expect(window.location.hash).toBe("#ordering");
+    });
+  });
+
+  it("requires explicit confirmation before handing off rows without historical match", async () => {
+    const user = userEvent.setup();
+    searchHistoricalProducts.mockResolvedValue({ candidates: [] });
+
+    render(<PurchasingPage />);
+    await user.upload(screen.getByLabelText(/拍照|camera|摄像/i), new File(["whiteboard"], "invoice.jpg", { type: "image/jpeg" }));
+    await user.click(screen.getByRole("button", { name: "开始识别" }));
+
+    for (let index = 0; index < screen.getAllByTestId(/purchase-review-row-/).length; index += 1) {
+      const rowId = `purchase-review-row-${index + 1}`;
+      const row = screen.getByTestId(rowId);
+      const matchButton = within(row).getByRole("button", { name: /匹配发票商品/ });
+      await user.click(matchButton);
+      const confirmDialog = await screen.findByRole("dialog", { name: /匹配发票商品/ });
+      expect(confirmDialog).toHaveTextContent("未找到历史商品");
+      expect(within(confirmDialog).getByRole("button", { name: "确认未找到历史商品" })).toBeInTheDocument();
+      await user.click(within(confirmDialog).getByRole("button", { name: "确认未找到历史商品" }));
+      await waitFor(() => {
+        expect(screen.getByTestId(rowId)).toHaveTextContent("已确认未找到历史商品");
+      });
+    }
+    expect(screen.getByRole("button", { name: "转入下单模块" })).toBeEnabled();
   });
 
   it("disables all review controls while savePendingIntake is pending and re-enables after resolve", async () => {
     const user = userEvent.setup();
+    searchHistoricalProducts.mockResolvedValue({ candidates: [] });
     let resolveSavePending: (value: { status: string; intakeId: string; items: never[] }) => void;
     savePendingIntake.mockImplementationOnce(
       () =>
@@ -438,10 +552,15 @@ describe("PurchasingPage recognition and review", () => {
 
     await user.upload(cameraInput, new File(["whiteboard"], "invoice.jpg", { type: "image/jpeg" }));
     await user.click(screen.getByRole("button", { name: "开始识别" }));
+    await user.click(screen.getByRole("button", { name: "匹配发票商品 橙汁" }));
+    const firstPendingDialog = await screen.findByRole("dialog", { name: "匹配发票商品 橙汁" });
+    await user.click(within(firstPendingDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    await user.click(screen.getByRole("button", { name: /匹配发票商品 高档牛奶/ }));
+    const secondPendingDialog = await screen.findByRole("dialog", { name: "匹配发票商品 高档牛奶" });
+    await user.click(within(secondPendingDialog).getByRole("button", { name: "确认未找到历史商品" }));
 
-    await user.click(screen.getByRole("checkbox", { name: /已人工核对 1/ }));
     const saveDraftButton = screen.getByRole("button", { name: "保存草稿" });
-    const handoffButton = screen.getByRole("button", { name: "转入采购清单" });
+    const handoffButton = screen.getByRole("button", { name: "转入下单模块" });
     const addRowButton = screen.getByRole("button", { name: "新增一行" });
     const departmentInput = screen.getByLabelText("部门 1");
     const productInput = screen.getByLabelText("产品名称 1");
@@ -504,6 +623,7 @@ describe("PurchasingPage recognition and review", () => {
 
   it("disables review controls while readyForPurchase is pending and locks terminally after resolve", async () => {
     const user = userEvent.setup();
+    searchHistoricalProducts.mockResolvedValue({ candidates: [] });
     let resolveReady: (value: { status: string; intakeId: string }) => void;
     readyForPurchase.mockImplementationOnce(
       () =>
@@ -511,16 +631,26 @@ describe("PurchasingPage recognition and review", () => {
           resolveReady = resolve;
         })
     );
+    importReadyIntake.mockResolvedValue({
+      batch: { id: "batch-task-5" },
+      readyIntakes: [],
+      intakeStatus: "AddedToOrder"
+    });
 
     render(<PurchasingPage />);
     const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
 
     await user.upload(cameraInput, new File(["whiteboard"], "invoice.jpg", { type: "image/jpeg" }));
     await user.click(screen.getByRole("button", { name: "开始识别" }));
+    await user.click(screen.getByRole("button", { name: "匹配发票商品 橙汁" }));
+    const firstReadyDialog = await screen.findByRole("dialog", { name: "匹配发票商品 橙汁" });
+    await user.click(within(firstReadyDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    await user.click(screen.getByRole("button", { name: /匹配发票商品 高档牛奶/ }));
+    const secondReadyDialog = await screen.findByRole("dialog", { name: "匹配发票商品 高档牛奶" });
+    await user.click(within(secondReadyDialog).getByRole("button", { name: "确认未找到历史商品" }));
 
-    await user.click(screen.getByRole("checkbox", { name: /已人工核对 1/ }));
     const saveDraftButton = screen.getByRole("button", { name: "保存草稿" });
-    const handoffButton = screen.getByRole("button", { name: "转入采购清单" });
+    const handoffButton = screen.getByRole("button", { name: "转入下单模块" });
     const addRowButton = screen.getByRole("button", { name: "新增一行" });
     const departmentInput = screen.getByLabelText("部门 1");
     const productInput = screen.getByLabelText("产品名称 1");
@@ -534,7 +664,7 @@ describe("PurchasingPage recognition and review", () => {
 
     await user.click(handoffButton);
     expect(readyForPurchase).toHaveBeenCalledTimes(1);
-    expect(handoffButton).toHaveTextContent("转入中...");
+    expect(handoffButton).toHaveTextContent("正在转入下单...");
     expect(handoffButton).toBeDisabled();
     expect(saveDraftButton).toBeDisabled();
     expect(addRowButton).toBeDisabled();
@@ -557,12 +687,17 @@ describe("PurchasingPage recognition and review", () => {
     expect(readyForPurchase).toHaveBeenCalledTimes(1);
     expect(screen.getAllByTestId(/purchase-review-row-/)).toHaveLength(2);
 
-    resolveReady!({
-      status: "ReadyForPurchase",
-      intakeId: "intake-1"
+    await act(async () => {
+      resolveReady!({
+        status: "ReadyForPurchase",
+        intakeId: "intake-1"
+      });
     });
 
-    expect(await screen.findByText("已转入采购清单")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(importReadyIntake).toHaveBeenCalledWith("intake-1");
+      expect(window.location.hash).toBe("#ordering");
+    });
     expect(saveDraftButton).toBeDisabled();
     expect(handoffButton).toBeDisabled();
     expect(addRowButton).toBeDisabled();
@@ -574,55 +709,28 @@ describe("PurchasingPage recognition and review", () => {
 
   it("locks review controls in terminal state after ready-for-purchase and prevents duplicate submit operations", async () => {
     const user = userEvent.setup();
+    searchHistoricalProducts.mockResolvedValue({ candidates: [] });
     render(<PurchasingPage />);
     const cameraInput = screen.getByLabelText(/拍照|camera|摄像/i);
 
     await user.upload(cameraInput, new File(["whiteboard"], "invoice.jpg", { type: "image/jpeg" }));
     await user.click(screen.getByRole("button", { name: "开始识别" }));
+    await user.click(screen.getByRole("button", { name: "匹配发票商品 橙汁" }));
+    const firstTerminalDialog = await screen.findByRole("dialog", { name: "匹配发票商品 橙汁" });
+    await user.click(within(firstTerminalDialog).getByRole("button", { name: "确认未找到历史商品" }));
+    await user.click(screen.getByRole("button", { name: /匹配发票商品 高档牛奶/ }));
+    const secondTerminalDialog = await screen.findByRole("dialog", { name: "匹配发票商品 高档牛奶" });
+    await user.click(within(secondTerminalDialog).getByRole("button", { name: "确认未找到历史商品" }));
 
-    await user.click(screen.getByRole("checkbox", { name: /已人工核对 1/ }));
-    await user.click(screen.getByRole("button", { name: "转入采购清单" }));
-
-    expect(readyForPurchase).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("已转入采购清单")).toBeInTheDocument();
-
-    const saveDraftButton = screen.queryByRole("button", { name: "保存草稿" });
-    const handoffButton = screen.queryByRole("button", { name: "转入采购清单" });
-    const firstRow = screen.getByTestId("purchase-review-row-1");
-    const addRowButton = screen.queryByRole("button", { name: "新增一行" });
-    const removeRowButton = within(firstRow).queryByRole("button", { name: "删除第 1 行" });
-    const matchButton = within(firstRow).queryByRole("button", { name: /匹配发票商品/ });
-    const clearMatchButton = screen.queryByRole("button", { name: /清除匹配/ });
-    const reviewInputs = [
-      screen.getByLabelText("部门 1"),
-      screen.getByLabelText("产品名称 1"),
-      screen.getByLabelText("数量 1"),
-      screen.getByLabelText("单位 1"),
-      screen.getByLabelText("备注 1")
-    ];
-
-    expect(saveDraftButton).toBeDisabled();
-    expect(handoffButton).toBeDisabled();
-    expect(addRowButton).toBeDisabled();
-    expect(removeRowButton).toBeDisabled();
-    expect(matchButton).toBeDisabled();
-    if (clearMatchButton) {
-      expect(clearMatchButton).toBeDisabled();
-    }
-    reviewInputs.forEach((input) => {
-      expect(input).toBeDisabled();
-    });
-    expect(screen.getByRole("checkbox", { name: /已人工核对 1/ })).toBeDisabled();
-
-    if (handoffButton && !(handoffButton as HTMLButtonElement).disabled) {
-      await user.click(handoffButton);
-    }
-    if (saveDraftButton && !(saveDraftButton as HTMLButtonElement).disabled) {
-      await user.click(saveDraftButton);
-    }
+    await user.click(screen.getByRole("button", { name: "转入下单模块" }));
 
     expect(savePendingIntake).not.toHaveBeenCalled();
-    expect(readyForPurchase).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(readyForPurchase).toHaveBeenCalledTimes(1);
+      expect(importReadyIntake).toHaveBeenCalledTimes(1);
+      expect(importReadyIntake).toHaveBeenCalledWith("intake-1");
+      expect(window.location.hash).toBe("#ordering");
+    });
     expect(screen.queryByRole("button", { name: "开始识别" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /重试识别/ })).not.toBeInTheDocument();
   });

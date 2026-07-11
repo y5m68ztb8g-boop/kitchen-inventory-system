@@ -40,7 +40,9 @@ function createReviewItem(
     ...item,
     clientId,
     currentInventoryQuantity: null,
-    manualReviewed: item.confidence >= 0.8,
+    // A recognised row still needs either an invoice match or an explicit
+    // confirmation that no historical product exists.
+    manualReviewed: false,
     matchQueryName: item.product_name,
     supplierCode: null,
     supplierLastPrice: null,
@@ -95,7 +97,6 @@ export function PurchasingPage() {
   const [state, setState] = useState<PageState>({ kind: "hub" });
   const [matchingClientId, setMatchingClientId] = useState<string | null>(null);
   const [showSource, setShowSource] = useState(false);
-  const [importingToOrder, setImportingToOrder] = useState(false);
   const previewUrl = state.kind === "preview" || state.kind === "recognising" ? state.previewUrl : null;
 
   useEffect(() => {
@@ -115,9 +116,23 @@ export function PurchasingPage() {
   const requiresManualReview = useMemo(
     () =>
       state.kind === "review" &&
-      state.items.some((item) => item.confidence < 0.8 && !item.manualReviewed),
+      state.items.some((item) => (item.confidence < 0.8 || !item.supplierProductId) && !item.manualReviewed),
     [state]
   );
+
+  const unmatchedItems = useMemo(
+    () => state.kind === "review" ? state.items.filter((item) => !item.supplierProductId) : [],
+    [state]
+  );
+
+  const invalidTransferItems = useMemo(
+    () => state.kind === "review"
+      ? state.items.filter((item) => !item.product_name.trim() || item.quantity === null || !Number.isFinite(item.quantity) || item.quantity <= 0)
+      : [],
+    [state]
+  );
+
+  const transferBlocked = requiresManualReview || invalidTransferItems.length > 0;
 
   function nextClientId() {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -200,6 +215,7 @@ export function PurchasingPage() {
     }
     updateItem(matchingClientId, {
       currentInventoryQuantity: product.currentInventoryQuantity,
+      manualReviewed: true,
       product_name: product.productName,
       supplierCode: product.supplierCode,
       supplierLastPrice: product.latestPrice,
@@ -260,6 +276,7 @@ export function PurchasingPage() {
   function clearProduct(clientId: string) {
     updateItem(clientId, {
       currentInventoryQuantity: null,
+      manualReviewed: false,
       supplierCode: null,
       supplierLastPrice: null,
       supplierLastPurchaseDate: null,
@@ -273,7 +290,7 @@ export function PurchasingPage() {
   }
 
   async function saveDraft() {
-    if (state.kind !== "review" || state.handedOff || requiresManualReview || state.items.length === 0) {
+    if (state.kind !== "review" || state.handedOff || transferBlocked || state.items.length === 0) {
       return;
     }
     const review = state;
@@ -298,29 +315,20 @@ export function PurchasingPage() {
     setState({ ...review, action: "handing-off", message: null });
     try {
       await readyForPurchase(review.intake.intakeId, review.items);
-      setState({ ...review, action: "idle", handedOff: true, message: "已转入采购清单" });
+      await importReadyIntake(review.intake.intakeId);
+      window.location.hash = "#ordering";
     } catch (error) {
       setState({
         ...review,
         action: "idle",
+        handedOff: false,
         message: error instanceof Error ? error.message : "转入失败，请稍后重试。"
       });
     }
   }
 
-  async function moveToOrdering() {
-    if (state.kind !== "review" || !state.handedOff || importingToOrder) return;
-    setImportingToOrder(true);
-    try {
-      await importReadyIntake(state.intake.intakeId);
-      window.location.hash = "#ordering";
-    } catch (error) {
-      setState({
-        ...state,
-        message: error instanceof Error ? error.message : "转入下单模块失败，请稍后重试。"
-      });
-      setImportingToOrder(false);
-    }
+  function confirmUnmatched(clientId: string) {
+    updateItem(clientId, { manualReviewed: true });
   }
 
   const matchingItem =
@@ -409,14 +417,26 @@ export function PurchasingPage() {
 
             {state.intake.unreadableText.length > 0 && <p className="purchase-review-note">未识别文字：{state.intake.unreadableText.join("、")}</p>}
             {state.message && <p className="purchasing-status-message" role="status">{state.message}</p>}
+            {unmatchedItems.length > 0 && (
+              <p className="purchase-review-warning" role="alert">
+                有 {unmatchedItems.length} 项没有匹配到历史发票商品。请先匹配发票，或确认“未找到历史商品”后，才能转入下单模块。
+              </p>
+            )}
+            {invalidTransferItems.length > 0 && (
+              <p className="purchase-review-warning" role="alert">
+                有 {invalidTransferItems.length} 项缺少有效数量或产品名称。请补充后，才能转入下单模块。
+              </p>
+            )}
 
             <div className="purchase-review-table" role="table" aria-label="采购项目核对表">
               {state.items.map((item, index) => {
                 const number = index + 1;
                 const lowConfidence = item.confidence < 0.8;
+                const unmatched = !item.supplierProductId;
+                const invalidTransfer = invalidTransferItems.some((entry) => entry.clientId === item.clientId);
                 const reviewLocked = state.handedOff || state.action !== "idle";
                 return (
-                  <article className={`purchase-review-row${lowConfidence ? " purchase-review-row-low-confidence" : ""}`} data-testid={`purchase-review-row-${number}`} key={item.clientId} role="row">
+                  <article className={`purchase-review-row${lowConfidence || unmatched || invalidTransfer ? " purchase-review-row-low-confidence" : ""}`} data-testid={`purchase-review-row-${number}`} key={item.clientId} role="row">
                     <div className="purchase-review-fields">
                       <label><span>部门</span><input aria-label={`部门 ${number}`} disabled={reviewLocked} onChange={(event) => updateItem(item.clientId, { department: nullableText(event.target.value) })} value={item.department ?? ""} /></label>
                       <label className="purchase-product-field"><span>产品名称</span><input aria-label={`产品名称 ${number}`} disabled={reviewLocked} onChange={(event) => updateItem(item.clientId, { matchQueryName: event.target.value, product_name: event.target.value })} value={item.product_name} /></label>
@@ -427,10 +447,11 @@ export function PurchasingPage() {
                     <div className="purchase-review-meta">
                       <label className="purchase-review-check">
                         <input aria-label={`已人工核对 ${number}`} checked={item.manualReviewed} disabled={reviewLocked} onChange={(event) => updateItem(item.clientId, { manualReviewed: event.target.checked })} type="checkbox" />
-                        <span>{lowConfidence ? "已人工核对（必填）" : "已人工核对"}</span>
+                        <span>{lowConfidence || unmatched ? "已人工核对（必填）" : "已人工核对"}</span>
                       </label>
-                      <span className={item.supplierProductId ? "purchase-match-state purchase-match-state-ok" : "purchase-match-state"}>{item.supplierProductId ? `${item.supplierName} · ${item.supplierProductCode}` : "待匹配"}</span>
+                      <span className={item.supplierProductId ? "purchase-match-state purchase-match-state-ok" : "purchase-match-state"}>{item.supplierProductId ? `${item.supplierName} · ${item.supplierProductCode}` : item.manualReviewed ? "已确认未找到历史商品" : "未匹配历史发票商品"}</span>
                       <button disabled={reviewLocked} onClick={(event) => openMatching(event, item.clientId)} type="button">匹配发票商品 {item.product_name}</button>
+                      {unmatched && <button disabled={reviewLocked || item.manualReviewed} onClick={() => confirmUnmatched(item.clientId)} type="button">{item.manualReviewed ? "已确认未找到历史商品" : "确认未找到历史商品"}</button>}
                       {item.supplierProductId && <button disabled={reviewLocked} onClick={() => clearProduct(item.clientId)} type="button">清除匹配</button>}
                       <button aria-label={`删除第 ${number} 行`} className="purchasing-icon-button" disabled={reviewLocked} onClick={() => removeItem(item.clientId)} title={`删除第 ${number} 行`} type="button"><Trash2 aria-hidden="true" size={18} /></button>
                     </div>
@@ -442,18 +463,20 @@ export function PurchasingPage() {
             <div className="purchase-review-actions">
               <button disabled={state.handedOff || state.action !== "idle"} onClick={addItem} type="button"><Plus aria-hidden="true" size={18} />新增一行</button>
               <button disabled={state.handedOff || state.action !== "idle" || requiresManualReview || state.items.length === 0} onClick={() => void saveDraft()} type="button">{state.action === "saving" ? "保存中..." : "保存草稿"}</button>
-              <button className="purchasing-primary-action" disabled={state.handedOff || state.action !== "idle" || requiresManualReview || state.items.length === 0} onClick={() => void handOff()} type="button">{state.action === "handing-off" ? "转入中..." : "转入采购清单"}</button>
-              {state.handedOff && (
-                <button className="purchasing-primary-action" disabled={importingToOrder} onClick={() => void moveToOrdering()} type="button">
-                  {importingToOrder ? "正在转入..." : "转入下单模块"}
-                </button>
-              )}
+              <button className="purchasing-primary-action" disabled={state.handedOff || state.action !== "idle" || transferBlocked || state.items.length === 0} onClick={() => void handOff()} type="button">{state.action === "handing-off" ? "正在转入下单..." : "转入下单模块"}</button>
             </div>
           </section>
         )}
       </section>
 
-      {matchingItem && <ProductMatchDialog itemName={matchingItem.matchQueryName ?? matchingItem.product_name} onChoose={chooseProduct} onClose={closeMatching} returnFocusElement={matchingTriggerRef.current} selectedProductId={matchingItem.supplierProductId} />}
+      {matchingItem && <ProductMatchDialog
+        itemName={matchingItem.matchQueryName ?? matchingItem.product_name}
+        onChoose={chooseProduct}
+        onClose={closeMatching}
+        returnFocusElement={matchingTriggerRef.current}
+        secondaryAction={{ label: "确认未找到历史商品", onClick: () => { confirmUnmatched(matchingItem.clientId); closeMatching(); } }}
+        selectedProductId={matchingItem.supplierProductId}
+      />}
 
       {showSource && state.kind === "review" && (
         <div className="purchase-image-dialog-backdrop">

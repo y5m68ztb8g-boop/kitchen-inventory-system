@@ -77,7 +77,7 @@ export function ProductMatchDialog({ itemName, onChoose, onClose, returnFocusEle
 
   return (
     <div className="product-match-backdrop">
-      <section aria-label={`匹配发票商品 ${itemName}`} aria-modal="true" className="product-match-dialog" onKeyDown={handleDialogKeyDown} ref={dialogRef} role="dialog">
+      <section aria-label={`匹配发票商品 ${query || itemName}`} aria-modal="true" className="product-match-dialog" onKeyDown={handleDialogKeyDown} ref={dialogRef} role="dialog">
         <header className="product-match-header">
           <div>
             <p>历史发票商品</p>
@@ -99,7 +99,7 @@ export function ProductMatchDialog({ itemName, onChoose, onClose, returnFocusEle
 
         {loading && <p className="product-match-message">正在搜索...</p>}
         {error && <p className="product-match-error" role="alert">{error}</p>}
-        {!loading && !error && products.length === 0 && <p className="product-match-message">没有找到历史商品。</p>}
+        {!loading && !error && products.length === 0 && <p className="product-match-message">近半年没有找到历史采购记录，当前商品未出现在发票中。请手动确认，或直接录入未匹配商品。</p>}
 
         <div className="product-match-results">
           {products.map((product) => {

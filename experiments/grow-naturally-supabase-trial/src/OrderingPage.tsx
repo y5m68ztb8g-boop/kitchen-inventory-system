@@ -59,6 +59,7 @@ export function OrderingPage() {
   const [confirmOrdered, setConfirmOrdered] = useState<{ code: "CMP" | "MM" | "BRK"; name: string } | null>(null);
   const [quickAddRunning, setQuickAddRunning] = useState(false);
   const [poSaving, setPoSaving] = useState(false);
+  const [readyImportingId, setReadyImportingId] = useState<string | null>(null);
   const [orderSearchQuery, setOrderSearchQuery] = useState("");
   const [manualSearchSeed, setManualSearchSeed] = useState("");
   const [stockTarget, setStockTarget] = useState<{ itemId: string; productName: string; supplierProductId: string; locations: NonNullable<PurchaseBatch["items"][number]["locations"]> } | null>(null);
@@ -160,6 +161,21 @@ export function OrderingPage() {
     finally { setPoSaving(false); }
   }
 
+  async function importReady(intakeId: string) {
+    if (readyImportingId) return;
+    setReadyImportingId(intakeId);
+    setError(null);
+    try {
+      const response = await importReadyIntake(intakeId);
+      setBatch(response.batch);
+      setReadyIntakes(response.readyIntakes);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "待采购项目导入失败，请稍后重试。 ");
+    } finally {
+      setReadyImportingId(null);
+    }
+  }
+
   function openProductSearch(query = orderSearchQuery) {
     setManualSearchSeed(query.trim());
     setSelectedProduct(null);
@@ -204,7 +220,7 @@ export function OrderingPage() {
       {readyIntakes.length > 0 && (
         <section className="ready-intakes" aria-label="待导入采购项目">
           <h2>待采购项目</h2>
-          {readyIntakes.map((intake) => <button key={intake.id} onClick={() => void importReadyIntake(intake.id).then((response) => { setBatch(response.batch); setReadyIntakes(response.readyIntakes); })} type="button">导入 {intake.originalFilename}（{intake.itemCount} 项）</button>)}
+          {readyIntakes.map((intake) => <button disabled={readyImportingId !== null} key={intake.id} onClick={() => void importReady(intake.id)} type="button">{readyImportingId === intake.id ? "导入中..." : `导入 ${intake.originalFilename}（${intake.itemCount} 项）`}</button>)}
         </section>
       )}
 

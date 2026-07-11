@@ -8,10 +8,40 @@ async function expectNoHorizontalOverflow(page: Page) {
 
 async function createReadyIntake(page: Page) {
   let intakeId = "";
+  let imported = false;
+  let readyImportCallCount = 0;
+
+  await page.route("**/api/ordering/current/intakes/*", async (route) => {
+    const isCurrentIntakeImport = route.request().method() === "POST";
+    if (!isCurrentIntakeImport) {
+      await route.continue();
+      return;
+    }
+
+    readyImportCallCount += 1;
+    if (readyImportCallCount > 1) {
+      await route.fulfill({
+        json: {
+          error: {
+            code: "INTAKE_ALREADY_ADDED",
+            message: "该识别结果已完成下单导入。"
+          }
+        },
+        status: 400
+      });
+      return;
+    }
+
+    await route.continue();
+  });
+
   page.on("response", async (response) => {
     if (response.url().includes("/ready-for-purchase") && response.request().method() === "POST") {
       const payload = await response.json().catch(() => null) as { intakeId?: string } | null;
       intakeId = payload?.intakeId ?? intakeId;
+    }
+    if (response.url().includes("/api/ordering/current/intakes/") && response.request().method() === "POST") {
+      imported = true;
     }
   });
 
@@ -21,18 +51,20 @@ async function createReadyIntake(page: Page) {
   await page.getByRole("button", { name: "开始识别" }).click();
   await page.getByRole("button", { name: "匹配发票商品 Brakes The Juice Orange" }).click();
   await page.getByRole("button", { name: "选择 Brakes The Juice Orange", exact: true }).click();
-  await page.getByRole("button", { name: "转入采购清单" }).click();
-  await expect(page.getByText("已转入采购清单", { exact: true })).toBeVisible();
-  await expect.poll(() => intakeId).not.toBe("");
-  return intakeId;
-}
+    await page.getByRole("button", { name: "转入下单模块" }).click();
+    await expect(page).toHaveURL(/#ordering$/);
+    await expect.poll(() => intakeId).not.toBe("");
+    await expect
+      .poll(async () => imported)
+      .toBe(true);
+    return intakeId;
+  }
 
 test.describe("isolated ordering workflow", () => {
   test("calibrates CSV, prepares one shared PO and stops before supplier submission", async ({ page }, testInfo) => {
     test.setTimeout(60_000);
 
     const intakeId = await createReadyIntake(page);
-    await page.getByRole("button", { name: "转入下单模块" }).click();
     await expect(page).toHaveURL(/#ordering$/);
 
     const po = `PO-E2E-${testInfo.project.name}`;

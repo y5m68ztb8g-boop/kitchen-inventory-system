@@ -17,6 +17,7 @@ const {
   saveOrderingProfile,
   saveSupplierEmailDraft,
   searchHistoricalProducts,
+  importReadyIntake,
   runBrakesQuickAdd,
   updateOrderingInventoryLocation,
   updateOrderingItem
@@ -33,6 +34,7 @@ const {
   saveOrderingProfile: vi.fn(),
   saveSupplierEmailDraft: vi.fn(),
   searchHistoricalProducts: vi.fn(),
+  importReadyIntake: vi.fn(),
   runBrakesQuickAdd: vi.fn(),
   updateOrderingInventoryLocation: vi.fn(),
   updateOrderingItem: vi.fn()
@@ -45,6 +47,7 @@ vi.mock("./ordering/api", () => ({
   getCurrentOrderingBatch,
   getOrderingProfile,
   markSupplierOrdered,
+  importReadyIntake,
   prepareSupplierGroup,
   recordInventoryRecheck,
   saveBatchPo,
@@ -170,6 +173,7 @@ describe("OrderingPage", () => {
     searchHistoricalProducts.mockResolvedValue({ candidates: [brakesProduct] });
     addOrderingItem.mockResolvedValue(brakesBatch);
     updateOrderingItem.mockResolvedValue(brakesBatch);
+    importReadyIntake.mockResolvedValue({ batch: emptyBatch, readyIntakes: [] });
     acknowledgeRestockOnly.mockResolvedValue(emptyBatch);
     recordInventoryRecheck.mockResolvedValue(emptyBatch);
     saveBatchPo.mockResolvedValue(emptyBatch);
@@ -456,5 +460,48 @@ describe("OrderingPage", () => {
     });
     expect(screen.getByRole("button", { name: "未匹配供应商 分组" })).toBeInTheDocument();
     expect(await screen.findByText(unmatchedItem.productName)).toBeInTheDocument();
+  });
+
+  it("shows a Chinese error when a ready intake fails to import", async () => {
+    const user = userEvent.setup();
+    const failMessage = "该采购清单尚未准备好转入下单模块。";
+    getCurrentOrderingBatch.mockResolvedValueOnce({
+      batch: emptyBatch,
+      readyIntakes: [{ id: "intake-failed", originalFilename: "invoice.csv", itemCount: 2 }]
+    });
+    importReadyIntake.mockRejectedValue(new Error(failMessage));
+
+    render(<OrderingPage />);
+
+    await user.click(await screen.findByRole("button", { name: "导入 invoice.csv（2 项）" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(failMessage);
+  });
+
+  it("shows a half-year no-history prompt for manual search and keeps direct-entry available", async () => {
+    const user = userEvent.setup();
+    searchHistoricalProducts.mockResolvedValue({ candidates: [] });
+
+    render(<OrderingPage />);
+    await user.click(await screen.findByRole("button", { name: "手动添加" }));
+
+    await user.type(await screen.findByLabelText("搜索历史发票商品"), "NoMatch");
+    expect(await screen.findByRole("dialog", { name: "匹配发票商品 NoMatch" })).toHaveTextContent(
+      "近半年没有找到历史采购记录，当前商品未出现在发票中。请手动确认，或直接录入未匹配商品。"
+    );
+    await user.click(screen.getByRole("button", { name: "直接录入未匹配商品" }));
+
+    await user.type(screen.getByLabelText("产品名称"), "Event garnish");
+    await user.clear(screen.getByLabelText("订购数量"));
+    await user.type(screen.getByLabelText("订购数量"), "2");
+    await user.type(screen.getByLabelText("单位"), "tray");
+    await user.click(screen.getByRole("button", { name: "添加到下单" }));
+
+    expect(addOrderingItem).toHaveBeenCalledWith(emptyBatch.id, {
+      productName: "Event garnish",
+      orderQuantity: 2,
+      orderUnit: "tray",
+      supplierGroup: "UNMATCHED"
+    });
+    expect(await screen.findByRole("button", { name: "未匹配供应商 分组" })).toBeInTheDocument();
   });
 });
