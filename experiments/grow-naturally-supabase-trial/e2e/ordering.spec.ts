@@ -51,6 +51,11 @@ test.describe("isolated ordering workflow", () => {
     await page.getByLabel("订购数量", { exact: true }).fill("1");
     await page.getByRole("button", { name: "添加到下单" }).click();
     await expect(page.getByText("12x1ltr").first()).toBeVisible();
+    const currentResponse = await page.request.get("/api/ordering/current");
+    const current = await currentResponse.json() as { batch: { items: Array<{ id: string }> } };
+    const [firstItem, secondItem] = current.batch.items;
+    expect(firstItem).toBeDefined();
+    expect(secondItem).toBeDefined();
 
     let acknowledged = 0;
     await page.route("**/api/ordering/batches/*/suppliers/CMP/prepare", async (route) => {
@@ -60,17 +65,35 @@ test.describe("isolated ordering workflow", () => {
             kind: "inventory-review-required",
             items: [
               {
-                itemId: "stock-tomatoes",
+                itemId: firstItem.id,
                 productName: "Campbells Chopped Tomatoes",
                 totalEquivalentQuantity: 2.5,
-                locations: [],
+                locations: [
+                  {
+                    warehouse: "dry-store",
+                    warehouseLabel: "干货库",
+                    locationCode: "A1",
+                    displayQuantity: "2.5 cases",
+                    equivalentQuantity: 2.5,
+                    deepLink: "#dry-store?product=tomatoes&location=A1"
+                  }
+                ],
                 inventoryLink: "#dry-store?product=tomatoes&location=A1"
               },
               {
-                itemId: "stock-oil",
+                itemId: secondItem.id,
                 productName: "Campbells Vegetable Oil",
                 totalEquivalentQuantity: 3.2,
-                locations: [],
+                locations: [
+                  {
+                    warehouse: "dry-store",
+                    warehouseLabel: "干货库",
+                    locationCode: "B2",
+                    displayQuantity: "3.2 cases",
+                    equivalentQuantity: 3.2,
+                    deepLink: "#dry-store?product=oil&location=B2"
+                  }
+                ],
                 inventoryLink: "#dry-store?product=oil&location=B2"
               }
             ]
@@ -102,7 +125,13 @@ test.describe("isolated ordering workflow", () => {
     await expect(stockDialog).toContainText("Campbells Chopped Tomatoes");
     await expect(stockDialog).toContainText("Campbells Vegetable Oil");
     await expect(stockDialog.getByRole("button", { name: "仅补货" })).toHaveCount(2);
-    await expect(stockDialog.getByRole("link", { name: "去核查库存" }).first()).toHaveAttribute("href", /#dry-store\?/);
+    await stockDialog.getByRole("button", { name: "查看库存" }).first().click();
+    await expect(page).toHaveURL(/#ordering$/);
+    const inventoryDialog = page.getByRole("dialog", { name: "库存位置与数量" });
+    await expect(inventoryDialog).toContainText("干货库");
+    await expect(inventoryDialog).toContainText("A1");
+    await expect(inventoryDialog).toContainText("2.5 cases");
+    await inventoryDialog.getByRole("button", { name: /关闭/ }).click();
     await stockDialog.getByRole("button", { name: "仅补货" }).first().click();
     await expect(stockDialog.getByRole("button", { name: "仅补货" })).toHaveCount(1);
     await stockDialog.getByRole("button", { name: "仅补货" }).click();

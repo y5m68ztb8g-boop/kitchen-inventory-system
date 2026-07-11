@@ -12,6 +12,7 @@ import {
   addBatchItem,
   saveBrakesQuickAddResults,
   saveBatchPo,
+  saveOrderingProfile,
   saveSupplierEmailDraft,
   type OrderingProfile
 } from "../../server/ordering/database";
@@ -616,6 +617,88 @@ describe("ordering routes", () => {
     });
     expect(secondProfile.response.status).toBe(200);
     expect(secondProfile.payload).toMatchObject(updatedProfile);
+  });
+
+  it("returns PO_REQUIRED instead of 500 when CMP preparation has no PO", async () => {
+    const database = createPurchasingDatabase(":memory:");
+    const batchId = getOrCreateDraftBatch(database).id;
+    addBatchItem(database, {
+      batchId,
+      productName: "CMP low-stock item",
+      supplierGroup: "CMP",
+      supplierProductId: "CMP-LOW-STOCK",
+      supplierProductCode: "CMP-100",
+      supplierName: "Campbells",
+      packSize: "case",
+      orderQuantity: 1,
+      orderUnit: "case",
+      lastPrice: null,
+      purchaseCount: null,
+      latestPurchaseDate: null
+    });
+    saveOrderingProfile(database, {
+      purchaserName: "Ada Buyer",
+      hotelName: "Natural Growth Hotel",
+      campbellsEmail: "orders@campbells.example",
+      markMurphyEmail: "orders@markmurphy.example"
+    });
+    const server = await createTestServer({
+      database,
+      historicalCandidates: () => orderingTask3Candidates,
+      orderingInventory: () => new Map([
+        ["CMP-LOW-STOCK", { supplierProductId: "CMP-LOW-STOCK", totalEquivalentQuantity: 1, locations: [] }]
+      ])
+    });
+    const baseUrl = await startServer(server);
+
+    const result = await requestJson(`${baseUrl}/api/ordering/batches/${batchId}/suppliers/CMP/prepare`, { method: "POST" });
+
+    expect(result.response.status).toBe(400);
+    expect(result.payload).toMatchObject({ error: { code: "PO_REQUIRED" } });
+  });
+
+  it("returns ORDERING_PROFILE_REQUIRED for each missing CMP ordering profile field instead of 500", async () => {
+    const completeProfile = {
+      purchaserName: "Ada Buyer",
+      hotelName: "Natural Growth Hotel",
+      campbellsEmail: "orders@campbells.example",
+      markMurphyEmail: "orders@markmurphy.example"
+    } satisfies OrderingProfile;
+
+    for (const missing of ["purchaserName", "hotelName", "campbellsEmail"] as const) {
+      const database = createPurchasingDatabase(":memory:");
+      const batchId = getOrCreateDraftBatch(database).id;
+      saveBatchPo(database, batchId, `PO-MISSING-${missing}`);
+      saveOrderingProfile(database, { ...completeProfile, [missing]: "" });
+      addBatchItem(database, {
+        batchId,
+        productName: `CMP missing ${missing}`,
+        supplierGroup: "CMP",
+        supplierProductId: `CMP-${missing}`,
+        supplierProductCode: `CMP-${missing}`,
+        supplierName: "Campbells",
+        packSize: "case",
+        orderQuantity: 1,
+        orderUnit: "case",
+        lastPrice: null,
+        purchaseCount: null,
+        latestPurchaseDate: null
+      });
+      const server = await createTestServer({
+        database,
+        historicalCandidates: () => orderingTask3Candidates,
+        orderingInventory: () => new Map([
+          [`CMP-${missing}`, { supplierProductId: `CMP-${missing}`, totalEquivalentQuantity: 1, locations: [] }]
+        ])
+      });
+      const baseUrl = await startServer(server);
+
+      const result = await requestJson(`${baseUrl}/api/ordering/batches/${batchId}/suppliers/CMP/prepare`, { method: "POST" });
+
+      expect(result.response.status).toBeGreaterThanOrEqual(400);
+      expect(result.response.status).toBeLessThan(500);
+      expect(result.payload).toMatchObject({ error: { code: "ORDERING_PROFILE_REQUIRED" } });
+    }
   });
 
   it("GET current batch includes server-enriched inventory snapshot fields on matched items", async () => {

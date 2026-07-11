@@ -12,6 +12,7 @@ export type PurchasingApiErrorCode =
   | "INVALID_REVIEW_DATA"
   | "INVALID_ORDERING_DATA"
   | "PO_REQUIRED"
+  | "ORDERING_PROFILE_REQUIRED"
   | "SUPPLIER_NOT_PREPARED"
   | "INVALID_ORDER_QUANTITY"
   | "SUPPLIER_PRODUCT_NOT_FOUND"
@@ -39,6 +40,7 @@ const errorDetails: Record<PurchasingApiErrorCode, PurchasingApiErrorDetails> = 
   INVALID_REVIEW_DATA: { message: "采购清单数据无效，请检查后重试。", status: 400 },
   INVALID_ORDERING_DATA: { message: "下单数据无效，请检查后重试。", status: 400 },
   PO_REQUIRED: { message: "请先填写 PO 再继续操作。", status: 400 },
+  ORDERING_PROFILE_REQUIRED: { message: "请先在下单设置中填写订购人、酒店名称和供应商邮箱。", status: 400 },
   SUPPLIER_NOT_PREPARED: { message: "请先完成该供应商的下单准备。", status: 409 },
   INVALID_ORDER_QUANTITY: { message: "订购数量无效，请填写大于 0 的数字。", status: 400 },
   SUPPLIER_PRODUCT_NOT_FOUND: { message: "未找到对应历史商品，商品信息已过期。", status: 400 },

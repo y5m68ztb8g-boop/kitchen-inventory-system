@@ -4,11 +4,13 @@ import type { InventoryReviewItem } from "./types";
 export function InventoryReviewDialog({
   items,
   onClose,
+  onViewInventory,
   onRecheck,
   onRestockOnly
 }: {
   items: InventoryReviewItem[];
   onClose: () => void;
+  onViewInventory: (item: InventoryReviewItem) => void;
   onRecheck: (item: InventoryReviewItem) => void;
   onRestockOnly: (item: InventoryReviewItem) => void;
 }) {
@@ -26,7 +28,7 @@ export function InventoryReviewDialog({
               <div><strong>{item.productName}</strong><span>当前约 {item.totalEquivalentQuantity} 个完整包装</span></div>
               {item.locations.length > 0 && <p>{item.locations.map((location) => `${location.warehouseLabel} ${location.locationCode} · ${location.displayQuantity}`).join("；")}</p>}
               <div className="inventory-review-actions">
-                <a href={item.inventoryLink} onClick={() => onRecheck(item)}>去核查库存</a>
+                <button onClick={() => { onRecheck(item); onViewInventory(item); }} type="button">查看库存</button>
                 <button onClick={() => onRestockOnly(item)} type="button">仅补货</button>
               </div>
             </article>

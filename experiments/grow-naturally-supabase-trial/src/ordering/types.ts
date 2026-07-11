@@ -71,6 +71,7 @@ export type SupplierEmailDraft = {
 
 export type InventoryReviewItem = {
   itemId: string;
+  supplierProductId?: string | null;
   productName: string;
   totalEquivalentQuantity: number;
   locations: OrderingInventoryLocation[];

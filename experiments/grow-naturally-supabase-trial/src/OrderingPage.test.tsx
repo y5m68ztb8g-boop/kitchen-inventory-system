@@ -18,6 +18,7 @@ const {
   saveSupplierEmailDraft,
   searchHistoricalProducts,
   runBrakesQuickAdd,
+  updateOrderingInventoryLocation,
   updateOrderingItem
 } = vi.hoisted(() => ({
   acknowledgeRestockOnly: vi.fn(),
@@ -33,6 +34,7 @@ const {
   saveSupplierEmailDraft: vi.fn(),
   searchHistoricalProducts: vi.fn(),
   runBrakesQuickAdd: vi.fn(),
+  updateOrderingInventoryLocation: vi.fn(),
   updateOrderingItem: vi.fn()
 }));
 
@@ -49,6 +51,7 @@ vi.mock("./ordering/api", () => ({
   saveOrderingProfile,
   saveSupplierEmailDraft,
   runBrakesQuickAdd,
+  updateOrderingInventoryLocation,
   updateOrderingItem
 }));
 
@@ -173,6 +176,7 @@ describe("OrderingPage", () => {
     saveSupplierEmailDraft.mockResolvedValue(emptyBatch);
     runBrakesQuickAdd.mockResolvedValue(task7Batch);
     markSupplierOrdered.mockResolvedValue(task7Batch);
+    updateOrderingInventoryLocation.mockResolvedValue(undefined);
     saveOrderingProfile.mockResolvedValue({
       purchaserName: "Alex Buyer",
       hotelName: "Natural Growth Hotel",
@@ -190,6 +194,17 @@ describe("OrderingPage", () => {
       expect(screen.getByRole("button", { name: `${name} 分组` })).toBeInTheDocument();
     }
     expect(getCurrentOrderingBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("makes product search the primary ordering action and keeps one compact shared PO field", async () => {
+    render(<OrderingPage />);
+
+    const search = await screen.findByRole("search", { name: "搜索下单商品" });
+    expect(within(search).getByRole("searchbox", { name: "搜索下单商品" })).toBeInTheDocument();
+    expect(within(search).getByRole("button", { name: "搜索并添加" })).toBeInTheDocument();
+    const auxiliary = screen.getByRole("region", { name: "采购辅助信息" });
+    expect(within(auxiliary).getByLabelText("采购 PO 号码")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("采购 PO 号码")).toHaveLength(1);
   });
 
   it("adds a historical product using complete supplier-pack quantity", async () => {
@@ -242,8 +257,65 @@ describe("OrderingPage", () => {
     const dialog = screen.getByRole("dialog", { name: "下单前核查库存" });
     expect(dialog).toHaveTextContent("Campbells Chopped Tomatoes");
     expect(dialog).toHaveTextContent("Campbells Vegetable Oil");
-    expect(within(dialog).getAllByRole("link", { name: "去核查库存" })).toHaveLength(2);
+    expect(within(dialog).getAllByRole("button", { name: "查看库存" })).toHaveLength(2);
+    expect(within(dialog).queryByRole("link", { name: "去核查库存" })).not.toBeInTheDocument();
     expect(within(dialog).getAllByRole("button", { name: "仅补货" })).toHaveLength(2);
+  });
+
+  it("reviews and corrects an inventory location in-page, then refreshes the batch and dialog", async () => {
+    const user = userEvent.setup();
+    const inventoryItem = {
+      ...brakesBatch.items[0],
+      totalEquivalentQuantity: 2,
+      locations: [
+        {
+          warehouse: "dry-store",
+          warehouseLabel: "干货库",
+          locationCode: "A1",
+          displayQuantity: "2 cases",
+          equivalentQuantity: 2,
+          deepLink: "#dry-store?product=BRK-JUICE-12&location=A1"
+        }
+      ]
+    };
+    const inventoryBatch = { ...brakesBatch, items: [inventoryItem] };
+    const updatedBatch = {
+      ...inventoryBatch,
+      items: [
+        {
+          ...inventoryItem,
+          totalEquivalentQuantity: 4,
+          locations: [{ ...inventoryItem.locations[0], displayQuantity: "4 cases", equivalentQuantity: 4 }]
+        }
+      ]
+    };
+    getCurrentOrderingBatch
+      .mockResolvedValueOnce({ batch: inventoryBatch, readyIntakes: [] })
+      .mockResolvedValueOnce({ batch: updatedBatch, readyIntakes: [] });
+    render(<OrderingPage />);
+
+    await user.click(await screen.findByRole("button", { name: `查看库存 ${inventoryItem.productName}` }));
+    let dialog = screen.getByRole("dialog", { name: "库存位置与数量" });
+    expect(dialog).toHaveTextContent("干货库");
+    expect(dialog).toHaveTextContent("A1");
+    expect(dialog).toHaveTextContent("2 cases");
+    expect(window.location.hash).not.toContain("dry-store");
+
+    await user.click(within(dialog).getByRole("button", { name: "库存不准确" }));
+    const quantity = within(dialog).getByRole("spinbutton", { name: /A1.*数量|数量.*A1/ });
+    await user.clear(quantity);
+    await user.type(quantity, "4");
+    await user.click(within(dialog).getByRole("button", { name: "保存库存数量" }));
+
+    expect(updateOrderingInventoryLocation).toHaveBeenCalledWith(
+      inventoryItem.supplierProductId,
+      "dry-store",
+      "A1",
+      4
+    );
+    expect(getCurrentOrderingBatch).toHaveBeenCalledTimes(2);
+    dialog = await screen.findByRole("dialog", { name: "库存位置与数量" });
+    expect(dialog).toHaveTextContent("4 cases");
   });
 
   it("keeps the email draft editable and exposes open or copy actions but never send", async () => {

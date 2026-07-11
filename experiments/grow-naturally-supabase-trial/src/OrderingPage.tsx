@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Plus, Settings, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, Search, Settings, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import "./OrderingPage.css";
 import {
@@ -15,10 +15,12 @@ import {
   saveBatchPo,
   saveOrderingProfile,
   saveSupplierEmailDraft,
+  updateOrderingInventoryLocation,
   updateOrderingItem
 } from "./ordering/api";
 import { EmailDraftDialog } from "./ordering/EmailDraftDialog";
 import { InventoryReviewDialog } from "./ordering/InventoryReviewDialog";
+import { InventoryLocationDialog } from "./ordering/InventoryLocationDialog";
 import type {
   InventoryReviewItem,
   OrderingProfile,
@@ -57,6 +59,9 @@ export function OrderingPage() {
   const [confirmOrdered, setConfirmOrdered] = useState<{ code: "CMP" | "MM" | "BRK"; name: string } | null>(null);
   const [quickAddRunning, setQuickAddRunning] = useState(false);
   const [poSaving, setPoSaving] = useState(false);
+  const [orderSearchQuery, setOrderSearchQuery] = useState("");
+  const [manualSearchSeed, setManualSearchSeed] = useState("");
+  const [stockTarget, setStockTarget] = useState<{ itemId: string; productName: string; supplierProductId: string; locations: NonNullable<PurchaseBatch["items"][number]["locations"]> } | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -155,6 +160,22 @@ export function OrderingPage() {
     finally { setPoSaving(false); }
   }
 
+  function openProductSearch(query = orderSearchQuery) {
+    setManualSearchSeed(query.trim());
+    setSelectedProduct(null);
+    setDirectEntry(false);
+    setManualOpen(true);
+  }
+
+  async function saveInventoryLocation(location: NonNullable<PurchaseBatch["items"][number]["locations"]>[number], quantity: number) {
+    if (!stockTarget) return;
+    await updateOrderingInventoryLocation(stockTarget.supplierProductId, location.warehouse, location.locationCode, quantity);
+    const current = await getCurrentOrderingBatch();
+    setBatch(current.batch);
+    const updated = current.batch.items.find((item) => item.id === stockTarget.itemId || item.supplierProductId === stockTarget.supplierProductId);
+    if (updated?.locations) setStockTarget({ ...stockTarget, itemId: updated.id, locations: updated.locations, productName: updated.productName });
+  }
+
   if (!batch) {
     return <main className="ordering-page"><p>{error ?? "正在加载下单清单..."}</p></main>;
   }
@@ -166,12 +187,18 @@ export function OrderingPage() {
         <button aria-label="下单设置" className="ordering-icon-button" onClick={() => setSettingsOpen(true)} title="设置" type="button"><Settings size={20} /></button>
       </header>
 
-      {error && <p className="ordering-alert" role="status">{error}</p>}
+      {error && <div className="ordering-alert" role="status"><span>{error}</span>{error.includes("下单设置") && <button onClick={() => setSettingsOpen(true)} type="button">完善下单设置</button>}</div>}
       <p className="ordering-batch-status">{batch.status === "Ordered" ? "全部已下单" : batch.status === "PartiallyOrdered" ? "部分已下单" : "草稿"}</p>
 
-      <section className="ordering-toolbar" aria-label="下单基本信息">
-        <label><span>采购 PO 号码</span><input aria-label="采购 PO 号码" onBlur={() => void persistPo()} onChange={(event) => setBatch({ ...batch, poNumber: event.target.value })} placeholder="从前台系统取得后填写" value={batch.poNumber} /></label>
-        <button disabled={poSaving} onClick={() => setManualOpen(true)} type="button"><Plus size={18} />{poSaving ? "正在保存 PO..." : "手动添加"}</button>
+      <section aria-label="搜索下单商品" className="ordering-product-search" role="search">
+        <div><Search aria-hidden="true" size={24} /><label><span>搜索并添加商品</span><input aria-label="搜索下单商品" onChange={(event) => setOrderSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") openProductSearch(); }} placeholder="输入产品名称、供应商或产品编码" type="search" value={orderSearchQuery} /></label></div>
+        <button className="ordering-primary" onClick={() => openProductSearch()} type="button">搜索并添加</button>
+        <button onClick={() => openProductSearch("")} type="button"><Plus size={18} />手动添加</button>
+      </section>
+
+      <section aria-label="采购辅助信息" className="ordering-toolbar ordering-po-compact">
+        <label><span>PO</span><input aria-label="采购 PO 号码" onBlur={() => void persistPo()} onChange={(event) => setBatch({ ...batch, poNumber: event.target.value })} placeholder="前台 PO" value={batch.poNumber} /></label>
+        <span>{poSaving ? "保存中..." : "所有供应商共用"}</span>
       </section>
 
       {readyIntakes.length > 0 && (
@@ -208,6 +235,7 @@ export function OrderingPage() {
                       <label><span>订购数量</span><input aria-label={`订购数量 ${item.productName}`} min="0.01" onBlur={(event) => void updateOrderingItem(batch.id, item.id, { orderQuantity: Number(event.target.value) }).then(setBatch)} onChange={(event) => setBatch({ ...batch, items: batch.items.map((entry) => entry.id === item.id ? { ...entry, orderQuantity: Number(event.target.value) } : entry) })} step="any" type="number" value={item.orderQuantity} /></label>
                       <div><small>参考价格</small><span>{item.lastPrice == null ? "-" : money.format(item.lastPrice)}</span></div>
                       <div><small>当前库存</small><span>{item.totalEquivalentQuantity ?? 0}</span></div>
+                      {item.supplierProductId && item.locations && item.locations.length > 0 && <button aria-label={`查看库存 ${item.productName}`} className="ordering-stock-button" onClick={() => setStockTarget({ itemId: item.id, locations: item.locations!, productName: item.productName, supplierProductId: item.supplierProductId! })} type="button">查看库存</button>}
                       {group.code === "BRK" && <span className={`ordering-brakes-status ordering-brakes-${item.brakesStatus.toLowerCase()}`}>{item.brakesStatus === "Added" ? "已填入购物车" : item.brakesStatus === "AwaitingConfirmation" ? "等待 Brakes 确认" : item.brakesStatus === "InvalidCode" ? "无效编码" : item.brakesStatus === "Failed" ? "填写失败" : "待填入"}</span>}
                       <button aria-label={`删除 ${item.productName}`} className="ordering-icon-button" onClick={() => void deleteOrderingItem(batch.id, item.id).then(setBatch)} title="删除" type="button"><Trash2 size={18} /></button>
                     </article>
@@ -219,7 +247,7 @@ export function OrderingPage() {
         })}
       </section>
 
-      {manualOpen && !selectedProduct && !directEntry && <ProductMatchDialog itemName="" onChoose={setSelectedProduct} onClose={() => setManualOpen(false)} returnFocusElement={null} secondaryAction={{ label: "直接录入未匹配商品", onClick: () => setDirectEntry(true) }} selectedProductId={null} />}
+      {manualOpen && !selectedProduct && !directEntry && <ProductMatchDialog itemName={manualSearchSeed} onChoose={setSelectedProduct} onClose={() => setManualOpen(false)} returnFocusElement={null} secondaryAction={{ label: "直接录入未匹配商品", onClick: () => setDirectEntry(true) }} selectedProductId={null} />}
       {manualOpen && selectedProduct && (
         <div className="ordering-dialog-backdrop"><section aria-label="添加下单商品" aria-modal="true" className="ordering-dialog ordering-add-dialog" role="dialog">
           <header><div><p>{selectedProduct.supplierName}</p><h2>{selectedProduct.productName}</h2></div><button aria-label="关闭手动添加" className="ordering-icon-button" onClick={() => setManualOpen(false)} type="button"><X size={20} /></button></header>
@@ -238,7 +266,8 @@ export function OrderingPage() {
         </section></div>
       )}
 
-      {inventoryReview && <InventoryReviewDialog items={inventoryReview.items} onClose={() => setInventoryReview(null)} onRecheck={(item) => { if (batch) void recordInventoryRecheck(batch.id, item.itemId); }} onRestockOnly={(item) => void confirmRestock(item)} />}
+      {inventoryReview && <InventoryReviewDialog items={inventoryReview.items} onClose={() => setInventoryReview(null)} onRecheck={(item) => { if (batch) void recordInventoryRecheck(batch.id, item.itemId); }} onRestockOnly={(item) => void confirmRestock(item)} onViewInventory={(item) => { const batchItem = batch.items.find((entry) => entry.id === item.itemId); const supplierProductId = item.supplierProductId || batchItem?.supplierProductId; if (supplierProductId) setStockTarget({ itemId: item.itemId, locations: item.locations, productName: item.productName, supplierProductId }); }} />}
+      {stockTarget && <InventoryLocationDialog locations={stockTarget.locations} onClose={() => setStockTarget(null)} onSave={saveInventoryLocation} productName={stockTarget.productName} />}
       {emailDraft && <EmailDraftDialog draft={emailDraft} onChange={setEmailDraft} onClose={() => setEmailDraft(null)} onSave={saveDraft} supplierName={emailDraft.supplierCode === "CMP" ? "Campbells" : "Mark Murphy"} />}
       {settingsOpen && (
         <div className="ordering-dialog-backdrop"><section aria-label="下单设置" aria-modal="true" className="ordering-dialog ordering-settings" role="dialog">

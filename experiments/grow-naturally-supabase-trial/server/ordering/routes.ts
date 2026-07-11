@@ -98,6 +98,7 @@ const supplierEmailDraftSchema = z
 const orderingErrorCodes = new Set<PurchasingApiErrorCode>([
   "INVALID_ORDERING_DATA",
   "PO_REQUIRED",
+  "ORDERING_PROFILE_REQUIRED",
   "SUPPLIER_NOT_PREPARED",
   "INVALID_ORDER_QUANTITY",
   "SUPPLIER_PRODUCT_NOT_FOUND",
@@ -181,6 +182,15 @@ export function installOrderingRoutes(server: OrderingMiddlewareServer, options:
         requireMethod(request, "POST");
         const batchId = decodeURIComponent(prepareMatch[1]);
         const supplierCode = prepareMatch[2] as "CMP" | "MM" | "BRK";
+        const batch = getBatchDetail(options.database, batchId);
+        if (!batch.poNumber.trim()) throw new PurchasingApiError("PO_REQUIRED");
+        if (supplierCode === "CMP" || supplierCode === "MM") {
+          const profile = getOrderingProfile(options.database);
+          const recipient = supplierCode === "CMP" ? profile.campbellsEmail : profile.markMurphyEmail;
+          if (!profile.purchaserName.trim() || !profile.hotelName.trim() || !recipient.trim()) {
+            throw new PurchasingApiError("ORDERING_PROFILE_REQUIRED");
+          }
+        }
         const result = prepareSupplierGroup(options.database, {
           batchId,
           supplierCode,

@@ -10,6 +10,7 @@ import type {
 
 const chineseErrorMessages: Record<string, string> = {
   PO_REQUIRED: "请先填写 PO 再继续操作。",
+  ORDERING_PROFILE_REQUIRED: "请先在下单设置中填写订购人、酒店名称和供应商邮箱。",
   INVALID_ORDER_QUANTITY: "订购数量无效，请填写大于 0 的数字。",
   SUPPLIER_PRODUCT_NOT_FOUND: "未找到对应历史商品，商品信息已过期。",
   INTAKE_ALREADY_ADDED: "该采购清单已转入下单模块。",
@@ -123,6 +124,45 @@ export async function markSupplierOrdered(
     { method: "POST" }
   );
   return response.batch;
+}
+
+export async function updateOrderingInventoryLocation(
+  supplierProductId: string,
+  warehouse: "freezer" | "dry-store",
+  locationCode: string,
+  equivalentQuantity: number
+): Promise<void> {
+  if (!supplierProductId || !Number.isFinite(equivalentQuantity) || equivalentQuantity < 0) {
+    throw new Error("库存数量无效。 ");
+  }
+  const response = await fetch("/api/inventory-db", { method: "GET" });
+  if (!response.ok) throw new Error("库存读取失败，请稍后重试。 ");
+  const database = await response.json() as {
+    freezer?: Array<Record<string, unknown>>;
+    dryStore?: Array<Record<string, unknown>>;
+  };
+  const key = warehouse === "freezer" ? "freezer" : "dryStore";
+  const entries = Array.isArray(database[key]) ? database[key]! : [];
+  const index = entries.findIndex((entry) => {
+    const supplierProduct = entry.supplierProduct as { id?: unknown } | undefined;
+    return supplierProduct?.id === supplierProductId && entry.locationCode === locationCode;
+  });
+  if (index < 0) throw new Error("未找到该位置的库存记录。 ");
+  const current = entries[index];
+  const currentUnit = typeof current.unit === "string" && current.unit.trim() ? current.unit.trim() : "case";
+  const { fullPackageCount: _full, loosePackageCount: _loose, openPackagePercent: _open, ...rest } = current;
+  entries[index] = {
+    ...rest,
+    quantity: equivalentQuantity,
+    quantityText: `${equivalentQuantity} ${currentUnit}`,
+    unit: currentUnit
+  };
+  const saved = await fetch("/api/inventory-db", {
+    body: JSON.stringify({ ...database, [key]: entries }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST"
+  });
+  if (!saved.ok) throw new Error("库存保存失败，请稍后重试。 ");
 }
 
 function jsonRequest(method: "POST" | "PUT", body: unknown): RequestInit {

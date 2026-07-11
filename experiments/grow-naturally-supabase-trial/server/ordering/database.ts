@@ -570,6 +570,7 @@ export function prepareSupplierGroup(
     const firstLocation = snapshot.locations[0];
     return [{
       itemId: item.id,
+      supplierProductId: item.supplierProductId,
       productName: item.productName,
       totalEquivalentQuantity: snapshot.totalEquivalentQuantity,
       locations: snapshot.locations,
