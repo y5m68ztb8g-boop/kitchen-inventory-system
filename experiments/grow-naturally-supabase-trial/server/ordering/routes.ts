@@ -7,13 +7,17 @@ import type { HistoricalProductCandidate } from "../purchasing/matching";
 import {
   addBatchItem,
   addReadyIntakeToBatch,
+  acknowledgeRestockOnly,
   deleteBatchItem,
   getBatchDetail,
   getOrderingIntakeForTransfer,
   getOrderingProfile,
   getOrCreateDraftBatch,
   listReadyOrderingIntakes,
+  prepareSupplierGroup,
+  recordInventoryRecheck,
   saveBatchPo,
+  saveSupplierEmailDraft,
   saveOrderingProfile,
   updateBatchItem
 } from "./database";
@@ -77,6 +81,13 @@ const profileSchema = z
     hotelName: z.string(),
     campbellsEmail: emailSchema,
     markMurphyEmail: emailSchema
+  })
+  .strict();
+const supplierEmailDraftSchema = z
+  .object({
+    to: z.string().trim().min(1),
+    subject: z.string().trim().min(1),
+    body: z.string().trim().min(1)
   })
   .strict();
 
@@ -154,6 +165,60 @@ export function installOrderingRoutes(server: OrderingMiddlewareServer, options:
         if (!parsed.data.poNumber.trim()) throw new PurchasingApiError("PO_REQUIRED");
         const batch = saveBatchPo(options.database, decodeURIComponent(poMatch[1]), parsed.data.poNumber);
         sendJson(response, 200, await enrichBatch(batch, await orderingInventory()));
+        return;
+      }
+
+      const prepareMatch = url.pathname.match(
+        /^\/api\/ordering\/batches\/([^/]+)\/suppliers\/(CMP|MM|BRK)\/prepare$/
+      );
+      if (prepareMatch) {
+        requireMethod(request, "POST");
+        const batchId = decodeURIComponent(prepareMatch[1]);
+        const supplierCode = prepareMatch[2] as "CMP" | "MM" | "BRK";
+        const result = prepareSupplierGroup(options.database, {
+          batchId,
+          supplierCode,
+          inventory: await orderingInventory()
+        });
+        sendJson(response, 200, result);
+        return;
+      }
+
+      const emailDraftMatch = url.pathname.match(
+        /^\/api\/ordering\/batches\/([^/]+)\/suppliers\/(CMP|MM)\/email-draft$/
+      );
+      if (emailDraftMatch) {
+        requireMethod(request, "PUT");
+        const parsed = supplierEmailDraftSchema.safeParse(await readJsonBody(request));
+        if (!parsed.success) throw new PurchasingApiError("INVALID_ORDERING_DATA");
+        const batch = saveSupplierEmailDraft(options.database, {
+          batchId: decodeURIComponent(emailDraftMatch[1]),
+          supplierCode: emailDraftMatch[2] as "CMP" | "MM",
+          draft: parsed.data
+        });
+        sendJson(response, 200, { batch: await enrichBatch(batch, await orderingInventory()) });
+        return;
+      }
+
+      const inventoryDecisionMatch = url.pathname.match(
+        /^\/api\/ordering\/batches\/([^/]+)\/items\/([^/]+)\/(restock-only|recheck-inventory)$/
+      );
+      if (inventoryDecisionMatch) {
+        requireMethod(request, "POST");
+        const batchId = decodeURIComponent(inventoryDecisionMatch[1]);
+        const itemId = decodeURIComponent(inventoryDecisionMatch[2]);
+        const item = requireBatchItem(options.database, batchId, itemId);
+        if (!item.supplierProductId) throw new PurchasingApiError("INVALID_ORDERING_DATA");
+        const snapshot = (await orderingInventory()).get(item.supplierProductId);
+        if (!snapshot) throw new PurchasingApiError("INVALID_ORDERING_DATA");
+        if (inventoryDecisionMatch[3] === "restock-only") {
+          acknowledgeRestockOnly(options.database, { batchId, itemId, snapshot });
+        } else {
+          recordInventoryRecheck(options.database, { batchId, itemId, snapshot });
+        }
+        sendJson(response, 200, {
+          batch: await enrichBatch(getBatchDetail(options.database, batchId), await orderingInventory())
+        });
         return;
       }
 

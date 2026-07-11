@@ -112,6 +112,13 @@ type EmailDraftModule = {
   };
 };
 
+function expectPreparationKind<K extends PreparationResult["kind"]>(
+  result: PreparationResult,
+  kind: K
+): asserts result is Extract<PreparationResult, { kind: K }> {
+  expect(result.kind).toBe(kind);
+}
+
 function readInventoryDecision(database: Database.Database, batchId: string, itemId: string) {
   return database
     .prepare(
@@ -230,12 +237,12 @@ function saveInventoryDecision(
     );
 }
 
-function loadPreparationDatabase() {
-  return import("../../server/ordering/database") as Promise<PreparationDatabaseModule>;
+async function loadPreparationDatabase(): Promise<PreparationDatabaseModule> {
+  return (await import("../../server/ordering/database")) as unknown as PreparationDatabaseModule;
 }
 
-function loadEmailDraftModule() {
-  return import("../../server/ordering/emailDraft") as Promise<EmailDraftModule>;
+async function loadEmailDraftModule(): Promise<EmailDraftModule> {
+  return import("../../server/ordering/emailDraft");
 }
 
 describe("ordering supplier preparation", () => {
@@ -255,7 +262,7 @@ describe("ordering supplier preparation", () => {
       preparedAt: task4Now
     });
 
-    expect(result.kind).toBe("inventory-review-required");
+    expectPreparationKind(result, "inventory-review-required");
     expect(result.items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -318,7 +325,7 @@ describe("ordering supplier preparation", () => {
       supplierCode: "CMP",
       inventory: task4InventorySnapshotsForMutation
     });
-    expect(mutated.kind).toBe("inventory-review-required");
+    expectPreparationKind(mutated, "inventory-review-required");
     expect(mutated.items).toEqual(
       expect.arrayContaining([expect.objectContaining({ itemId: task4CmpReviewItem.id, totalEquivalentQuantity: 4.25 })])
     );
@@ -349,12 +356,12 @@ describe("ordering supplier preparation", () => {
       supplierCode: "CMP",
       inventory: task4InventorySnapshots
     });
-    expect(blocked.kind).toBe("inventory-review-required");
+    expectPreparationKind(blocked, "inventory-review-required");
     expect(blocked.items[0]).toMatchObject({ itemId: task4CmpReviewItem.id });
   });
 
   it("builds shared English PO draft for CMP/MM and validates profile/recipient fields", async () => {
-    const emailDraftModule = (await loadEmailDraftModule()) as EmailDraftModule;
+    const emailDraftModule = await loadEmailDraftModule();
     const cmpItems = [
       {
         productName: task4CmpReviewItem.productName,
@@ -440,10 +447,10 @@ describe("ordering supplier preparation", () => {
   });
 
   it("supports only CMP/MM for supplier draft generation", async () => {
-    const emailDraftModule = (await loadEmailDraftModule()) as EmailDraftModule;
+    const emailDraftModule = await loadEmailDraftModule();
     await expect(() =>
-      // @ts-expect-error for invalid supplier code path coverage
       emailDraftModule.buildSupplierEmailDraft({
+        // @ts-expect-error for invalid supplier code path coverage
         supplierCode: "BRK",
         poNumber: task4PoNumber,
         profile: task4OrderingProfile,
@@ -461,7 +468,7 @@ describe("ordering supplier preparation", () => {
   });
 
   it("saves an email draft as Prepared and never writes an order timestamp", async () => {
-    const emailDraftModule = (await loadEmailDraftModule()) as EmailDraftModule;
+    const emailDraftModule = await loadEmailDraftModule();
     const database = createTestOrderingDatabase();
     const module = await loadPreparationDatabase();
     const batch = getOrCreateDraftBatch(database);
@@ -501,8 +508,8 @@ describe("ordering supplier preparation", () => {
   });
 
   it("exposes no sendEmail side-effect helper from the preparation module", async () => {
-    const module = await import("../../server/ordering/emailDraft") as Record<string, unknown>;
-    expect(module).not.toContain("sendEmail");
+    const module = await import("../../server/ordering/emailDraft");
+    expect("sendEmail" in module).toBe(false);
   });
 
   it("returns the three preparation result unions and BRK prepares brakes queue only", async () => {
@@ -531,12 +538,26 @@ describe("ordering supplier preparation", () => {
     });
     expect(mmResult.kind).toBe("inventory-review-required");
 
+    const brkReviewResult = module.prepareSupplierGroup(database, {
+      batchId: batch.id,
+      supplierCode: "BRK",
+      inventory: task4InventorySnapshots
+    });
+    expectPreparationKind(brkReviewResult, "inventory-review-required");
+
+    const brkSnapshot = task4InventorySnapshots.get(task4BrkReviewItem.supplierProductId)!;
+    module.acknowledgeRestockOnly(database, {
+      batchId: batch.id,
+      itemId: task4BrkReviewItem.id,
+      snapshot: brkSnapshot
+    });
+
     const brkResult = module.prepareSupplierGroup(database, {
       batchId: batch.id,
       supplierCode: "BRK",
       inventory: task4InventorySnapshots
     });
-    expect(brkResult.kind).toBe("brakes-ready");
+    expectPreparationKind(brkResult, "brakes-ready");
     expect(brkResult.items).toEqual(expect.arrayContaining([expect.objectContaining({ itemId: task4BrkReviewItem.id })]));
     expect(
       getBatchDetail(database, batch.id).suppliers.find((supplier) => supplier.supplierCode === "BRK")?.emailDraft

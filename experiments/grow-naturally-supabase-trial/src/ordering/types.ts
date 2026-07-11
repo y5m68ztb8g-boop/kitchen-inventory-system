@@ -61,6 +61,26 @@ export type CurrentOrderingResponse = {
   intakeStatus?: "AddedToOrder";
 };
 
+export type SupplierEmailDraft = {
+  supplierCode: "CMP" | "MM";
+  to: string;
+  subject: string;
+  body: string;
+};
+
+export type InventoryReviewItem = {
+  itemId: string;
+  productName: string;
+  totalEquivalentQuantity: number;
+  locations: OrderingInventoryLocation[];
+  inventoryLink: string;
+};
+
+export type PreparationResult =
+  | { kind: "inventory-review-required"; items: InventoryReviewItem[] }
+  | { kind: "email-draft"; draft: SupplierEmailDraft }
+  | { kind: "brakes-ready"; items: Array<{ itemId: string; productCode: string; quantity: number }> };
+
 export type AddOrderingItemInput =
   | { supplierProductId: string; orderQuantity: number }
   | {

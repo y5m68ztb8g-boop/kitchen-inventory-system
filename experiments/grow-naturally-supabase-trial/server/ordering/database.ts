@@ -1,6 +1,8 @@
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { createPurchasingDatabase } from "../purchasing/database";
+import { buildSupplierEmailDraft, type SupplierEmailDraft } from "./emailDraft";
+import { inventoryDeepLink, inventorySnapshotKey, type OrderingInventorySnapshot } from "./inventory";
 import type {
   BrakesItemStatus,
   OrderingProfile,
@@ -81,6 +83,20 @@ export type MarkSupplierOrderedInput = {
   supplierCode: SupplierCode;
   orderedAt?: string;
 };
+
+export type PreparationResult =
+  | {
+      kind: "inventory-review-required";
+      items: Array<{
+        itemId: string;
+        productName: string;
+        totalEquivalentQuantity: number;
+        locations: OrderingInventorySnapshot["locations"];
+        inventoryLink: string;
+      }>;
+    }
+  | { kind: "email-draft"; draft: SupplierEmailDraft }
+  | { kind: "brakes-ready"; items: Array<{ itemId: string; productCode: string; quantity: number }> };
 
 type OrderingDatabaseErrorCode =
   | "ORDER_BATCH_NOT_FOUND"
@@ -510,6 +526,102 @@ export function saveOrderingProfile(database: Database.Database, profile: Orderi
   return getOrderingProfile(database);
 }
 
+export function acknowledgeRestockOnly(
+  database: Database.Database,
+  input: { batchId: string; itemId: string; snapshot: OrderingInventorySnapshot; confirmedAt?: string }
+): void {
+  saveInventoryDecision(database, { ...input, decision: "RestockOnly", savedAt: input.confirmedAt });
+}
+
+export function recordInventoryRecheck(
+  database: Database.Database,
+  input: { batchId: string; itemId: string; snapshot: OrderingInventorySnapshot; recordedAt?: string }
+): void {
+  saveInventoryDecision(database, { ...input, decision: "NeedsRecheck", savedAt: input.recordedAt });
+}
+
+export function prepareSupplierGroup(
+  database: Database.Database,
+  input: {
+    batchId: string;
+    supplierCode: SupplierCode;
+    inventory: Map<string, OrderingInventorySnapshot>;
+    preparedAt?: string;
+  }
+): PreparationResult {
+  const batch = getBatchDetail(database, input.batchId);
+  const items = batch.items.filter((item) => item.supplierGroup === input.supplierCode);
+  if (items.length === 0) throw new OrderingDatabaseError("SUPPLIER_NOT_IN_BATCH");
+
+  const checks = database
+    .prepare(
+      `SELECT item_id AS itemId, snapshot_key AS snapshotKey, decision
+         FROM purchase_inventory_checks WHERE batch_id = ?`
+    )
+    .all(input.batchId) as Array<{ itemId: string; snapshotKey: string; decision: "NeedsRecheck" | "RestockOnly" }>;
+  const checksByItem = new Map(checks.map((check) => [check.itemId, check]));
+  const blockers = items.flatMap((item) => {
+    if (!item.supplierProductId) return [];
+    const snapshot = input.inventory.get(item.supplierProductId);
+    if (!snapshot || snapshot.totalEquivalentQuantity <= 1) return [];
+    const check = checksByItem.get(item.id);
+    if (check?.decision === "RestockOnly" && check.snapshotKey === inventorySnapshotKey(snapshot)) return [];
+    const firstLocation = snapshot.locations[0];
+    return [{
+      itemId: item.id,
+      productName: item.productName,
+      totalEquivalentQuantity: snapshot.totalEquivalentQuantity,
+      locations: snapshot.locations,
+      inventoryLink: firstLocation ? inventoryDeepLink(item.supplierProductId, firstLocation) : "#ordering"
+    }];
+  });
+  if (blockers.length > 0) return { kind: "inventory-review-required", items: blockers };
+
+  if (input.supplierCode === "BRK") {
+    return {
+      kind: "brakes-ready",
+      items: items.map((item) => {
+        if (!item.supplierProductCode) throw new Error("Brakes product code required");
+        return { itemId: item.id, productCode: item.supplierProductCode, quantity: item.orderQuantity };
+      })
+    };
+  }
+
+  return {
+    kind: "email-draft",
+    draft: buildSupplierEmailDraft({
+      supplierCode: input.supplierCode,
+      poNumber: batch.poNumber,
+      profile: getOrderingProfile(database),
+      items
+    })
+  };
+}
+
+export function saveSupplierEmailDraft(
+  database: Database.Database,
+  input: {
+    batchId: string;
+    supplierCode: "CMP" | "MM";
+    draft: Omit<SupplierEmailDraft, "supplierCode">;
+    preparedAt?: string;
+  }
+): PurchaseBatch {
+  const preparedAt = input.preparedAt ?? new Date().toISOString();
+  requireBatch(database, input.batchId);
+  ensureSupplierRow(database, input.batchId, input.supplierCode, preparedAt);
+  database
+    .prepare(
+      `UPDATE purchase_batch_suppliers
+          SET status = 'Prepared', email_to = ?, email_subject = ?, email_body = ?,
+              prepared_at = ?, ordered_at = NULL, updated_at = ?
+        WHERE batch_id = ? AND supplier_code = ?`
+    )
+    .run(input.draft.to, input.draft.subject, input.draft.body, preparedAt, preparedAt, input.batchId, input.supplierCode);
+  touchBatch(database, input.batchId, preparedAt);
+  return getBatchDetail(database, input.batchId);
+}
+
 export function markSupplierOrdered(database: Database.Database, input: MarkSupplierOrderedInput): PurchaseBatch {
   const orderedAt = input.orderedAt ?? new Date().toISOString();
   database.transaction(() => {
@@ -539,6 +651,49 @@ function requireBatch(database: Database.Database, batchId: string): void {
   if (!exists) {
     throw new OrderingDatabaseError("ORDER_BATCH_NOT_FOUND");
   }
+}
+
+function saveInventoryDecision(
+  database: Database.Database,
+  input: {
+    batchId: string;
+    itemId: string;
+    snapshot: OrderingInventorySnapshot;
+    decision: "NeedsRecheck" | "RestockOnly";
+    savedAt?: string;
+  }
+): void {
+  requireBatch(database, input.batchId);
+  const item = database
+    .prepare("SELECT supplier_product_id AS supplierProductId FROM purchase_batch_items WHERE id = ? AND batch_id = ?")
+    .get(input.itemId, input.batchId) as { supplierProductId: string | null } | undefined;
+  if (!item) throw new OrderingDatabaseError("ORDER_BATCH_ITEM_NOT_FOUND");
+  if (item.supplierProductId !== input.snapshot.supplierProductId) {
+    throw new OrderingDatabaseError("ORDER_BATCH_ITEM_NOT_FOUND");
+  }
+  const savedAt = input.savedAt ?? new Date().toISOString();
+  database
+    .prepare(
+      `INSERT INTO purchase_inventory_checks (
+         batch_id, item_id, snapshot_key, equivalent_quantity, locations_json, decision, confirmed_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(item_id) DO UPDATE SET
+         batch_id = excluded.batch_id,
+         snapshot_key = excluded.snapshot_key,
+         equivalent_quantity = excluded.equivalent_quantity,
+         locations_json = excluded.locations_json,
+         decision = excluded.decision,
+         confirmed_at = excluded.confirmed_at`
+    )
+    .run(
+      input.batchId,
+      input.itemId,
+      inventorySnapshotKey(input.snapshot),
+      input.snapshot.totalEquivalentQuantity,
+      JSON.stringify(input.snapshot.locations),
+      input.decision,
+      savedAt
+    );
 }
 
 function supplierGroupFor(supplierCode: string | null): SupplierGroup {

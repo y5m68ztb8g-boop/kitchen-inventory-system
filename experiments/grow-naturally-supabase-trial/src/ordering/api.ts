@@ -2,7 +2,9 @@ import type {
   AddOrderingItemInput,
   CurrentOrderingResponse,
   OrderingProfile,
+  PreparationResult,
   PurchaseBatch,
+  SupplierEmailDraft,
   UpdateOrderingItemInput
 } from "./types";
 
@@ -63,6 +65,44 @@ export function getOrderingProfile(): Promise<OrderingProfile> {
 
 export function saveOrderingProfile(input: OrderingProfile): Promise<OrderingProfile> {
   return readOrderingResponse("/api/ordering/profile", jsonRequest("PUT", input));
+}
+
+export function prepareSupplierGroup(
+  batchId: string,
+  supplierCode: "CMP" | "MM" | "BRK"
+): Promise<PreparationResult> {
+  return readOrderingResponse(
+    `/api/ordering/batches/${encodeURIComponent(batchId)}/suppliers/${supplierCode}/prepare`,
+    { method: "POST" }
+  );
+}
+
+export async function acknowledgeRestockOnly(batchId: string, itemId: string): Promise<PurchaseBatch> {
+  const response = await readOrderingResponse<{ batch: PurchaseBatch }>(
+    `/api/ordering/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/restock-only`,
+    { method: "POST" }
+  );
+  return response.batch;
+}
+
+export async function recordInventoryRecheck(batchId: string, itemId: string): Promise<PurchaseBatch> {
+  const response = await readOrderingResponse<{ batch: PurchaseBatch }>(
+    `/api/ordering/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/recheck-inventory`,
+    { method: "POST" }
+  );
+  return response.batch;
+}
+
+export async function saveSupplierEmailDraft(
+  batchId: string,
+  supplierCode: "CMP" | "MM",
+  draft: Omit<SupplierEmailDraft, "supplierCode">
+): Promise<PurchaseBatch> {
+  const response = await readOrderingResponse<{ batch: PurchaseBatch }>(
+    `/api/ordering/batches/${encodeURIComponent(batchId)}/suppliers/${supplierCode}/email-draft`,
+    jsonRequest("PUT", draft)
+  );
+  return response.batch;
 }
 
 function jsonRequest(method: "POST" | "PUT", body: unknown): RequestInit {
