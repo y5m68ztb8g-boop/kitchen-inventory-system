@@ -113,7 +113,7 @@ async function requestJson(url: string, options: RequestInit = {}) {
   const response = await fetch(url, options);
   const payload = (await response.json().catch(() => null)) as {
     error?: { code?: string };
-    batch?: Record<string, unknown>;
+    batch?: Record<string, unknown> & { items?: Array<Record<string, unknown>> };
     readyIntakes?: unknown[];
     intakeStatus?: string;
   } | null;

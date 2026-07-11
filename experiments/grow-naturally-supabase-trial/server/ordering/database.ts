@@ -23,6 +23,13 @@ type AddReadyIntakeToBatchInput = {
   transferredAt?: string;
 };
 
+export type ReadyOrderingIntake = {
+  id: string;
+  originalFilename: string;
+  handedOffAt: string;
+  itemCount: number;
+};
+
 export type AddBatchItemInput = {
   batchId: string;
   id?: string;
@@ -167,6 +174,34 @@ export function getBatchDetail(database: Database.Database, batchId: string): Pu
   }));
 
   return { ...batch, items, suppliers };
+}
+
+export function listReadyOrderingIntakes(database: Database.Database): ReadyOrderingIntake[] {
+  return database
+    .prepare(
+      `SELECT intake.id,
+              intake.original_filename AS originalFilename,
+              intake.handed_off_at AS handedOffAt,
+              COUNT(item.id) AS itemCount
+         FROM purchase_intakes AS intake
+         LEFT JOIN purchase_intake_items AS item ON item.intake_id = intake.id
+        WHERE intake.status = 'ReadyForPurchase'
+        GROUP BY intake.id
+        ORDER BY intake.handed_off_at ASC, intake.id ASC`
+    )
+    .all() as ReadyOrderingIntake[];
+}
+
+export function listIntakeSupplierProductIds(database: Database.Database, intakeId: string): string[] {
+  return database
+    .prepare(
+      `SELECT DISTINCT supplier_product_id
+         FROM purchase_intake_items
+        WHERE intake_id = ? AND supplier_product_id IS NOT NULL
+        ORDER BY supplier_product_id ASC`
+    )
+    .pluck()
+    .all(intakeId) as string[];
 }
 
 export function addReadyIntakeToBatch(database: Database.Database, input: AddReadyIntakeToBatchInput): PurchaseBatch {

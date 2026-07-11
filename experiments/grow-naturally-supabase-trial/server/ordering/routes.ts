@@ -1,0 +1,360 @@
+import type Database from "better-sqlite3";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { z } from "zod";
+
+import { PurchasingApiError, type PurchasingApiErrorCode } from "../purchasing/errors";
+import type { HistoricalProductCandidate } from "../purchasing/matching";
+import {
+  addBatchItem,
+  addReadyIntakeToBatch,
+  deleteBatchItem,
+  getBatchDetail,
+  getOrderingProfile,
+  getOrCreateDraftBatch,
+  listIntakeSupplierProductIds,
+  listReadyOrderingIntakes,
+  saveBatchPo,
+  saveOrderingProfile,
+  updateBatchItem
+} from "./database";
+import { inventoryDeepLink, type OrderingInventorySnapshot } from "./inventory";
+import type { BrakesQuickAddRunner, PurchaseBatch, PurchaseBatchItem, SupplierGroup } from "./types";
+
+type RouteHandler = (
+  request: IncomingMessage,
+  response: ServerResponse,
+  next: (error?: unknown) => void
+) => void | Promise<void>;
+
+export type OrderingMiddlewareServer = {
+  middlewares: {
+    use: (handler: RouteHandler) => void;
+  };
+};
+
+export type OrderingRouteOptions = {
+  database: Database.Database;
+  historicalCandidates?: () => HistoricalProductCandidate[] | Promise<HistoricalProductCandidate[]>;
+  orderingInventory?: () =>
+    | Map<string, OrderingInventorySnapshot>
+    | Promise<Map<string, OrderingInventorySnapshot>>;
+  quickAdd?: BrakesQuickAddRunner;
+};
+
+const supplierGroupSchema = z.enum(["CMP", "MM", "BRK", "UNMATCHED"]);
+const positiveQuantitySchema = z.number().finite().positive();
+const matchedItemSchema = z
+  .object({
+    supplierProductId: z.string().trim().min(1),
+    orderQuantity: positiveQuantitySchema
+  })
+  .strict();
+const manualItemSchema = z
+  .object({
+    productName: z.string().trim().min(1),
+    orderQuantity: positiveQuantitySchema,
+    orderUnit: z.string().trim().min(1),
+    supplierGroup: supplierGroupSchema,
+    supplierProductCode: z.string().trim().min(1).optional()
+  })
+  .strict();
+const addItemSchema = z.union([matchedItemSchema, manualItemSchema]);
+const updateItemSchema = z
+  .object({
+    productName: z.string().trim().min(1).optional(),
+    orderQuantity: positiveQuantitySchema.optional(),
+    orderUnit: z.string().trim().min(1).optional(),
+    supplierGroup: supplierGroupSchema.optional(),
+    supplierProductCode: z.string().trim().min(1).nullable().optional(),
+    supplierProductId: z.string().trim().min(1).nullable().optional()
+  })
+  .strict();
+const poSchema = z.object({ poNumber: z.string() }).strict();
+const emailSchema = z.union([z.literal(""), z.string().email()]);
+const profileSchema = z
+  .object({
+    purchaserName: z.string(),
+    hotelName: z.string(),
+    campbellsEmail: emailSchema,
+    markMurphyEmail: emailSchema
+  })
+  .strict();
+
+const orderingErrorCodes = new Set<PurchasingApiErrorCode>([
+  "INVALID_ORDERING_DATA",
+  "PO_REQUIRED",
+  "INVALID_ORDER_QUANTITY",
+  "SUPPLIER_PRODUCT_NOT_FOUND",
+  "INTAKE_NOT_READY_FOR_ORDER",
+  "INTAKE_ALREADY_ADDED",
+  "ORDER_BATCH_NOT_FOUND",
+  "ORDER_BATCH_ITEM_NOT_FOUND"
+]);
+
+export function installOrderingRoutes(server: OrderingMiddlewareServer, options: OrderingRouteOptions): void {
+  const historicalCandidates = options.historicalCandidates ?? (() => []);
+  const orderingInventory = options.orderingInventory ?? (() => new Map());
+
+  server.middlewares.use(async (request, response, next) => {
+    const url = new URL(request.url || "/", "http://localhost");
+    if (url.pathname !== "/api/ordering" && !url.pathname.startsWith("/api/ordering/")) {
+      next();
+      return;
+    }
+
+    try {
+      if (url.pathname === "/api/ordering/current") {
+        requireMethod(request, "GET");
+        const batch = getOrCreateDraftBatch(options.database);
+        sendJson(response, 200, {
+          batch: await enrichBatch(batch, await orderingInventory()),
+          readyIntakes: listReadyOrderingIntakes(options.database)
+        });
+        return;
+      }
+
+      const intakeMatch = url.pathname.match(/^\/api\/ordering\/current\/intakes\/([^/]+)$/);
+      if (intakeMatch) {
+        requireMethod(request, "POST");
+        const batch = getOrCreateDraftBatch(options.database);
+        const candidates = await historicalCandidates();
+        const intakeId = decodeURIComponent(intakeMatch[1]);
+        for (const supplierProductId of listIntakeSupplierProductIds(options.database, intakeId)) {
+          requireCandidate(candidates, supplierProductId);
+        }
+        let imported = addReadyIntakeToBatch(options.database, {
+          batchId: batch.id,
+          intakeId
+        });
+        imported = rehydrateMatchedItems(options.database, imported, candidates);
+        sendJson(response, 200, {
+          batch: await enrichBatch(imported, await orderingInventory()),
+          intakeStatus: "AddedToOrder",
+          readyIntakes: listReadyOrderingIntakes(options.database)
+        });
+        return;
+      }
+
+      if (url.pathname === "/api/ordering/profile") {
+        if (request.method === "GET") {
+          sendJson(response, 200, getOrderingProfile(options.database));
+          return;
+        }
+        requireMethod(request, "PUT");
+        const parsed = profileSchema.safeParse(await readJsonBody(request));
+        if (!parsed.success) throw new PurchasingApiError("INVALID_ORDERING_DATA");
+        sendJson(response, 200, saveOrderingProfile(options.database, parsed.data));
+        return;
+      }
+
+      const poMatch = url.pathname.match(/^\/api\/ordering\/batches\/([^/]+)\/po$/);
+      if (poMatch) {
+        requireMethod(request, "PUT");
+        const parsed = poSchema.safeParse(await readJsonBody(request));
+        if (!parsed.success) throw new PurchasingApiError("INVALID_ORDERING_DATA");
+        if (!parsed.data.poNumber.trim()) throw new PurchasingApiError("PO_REQUIRED");
+        const batch = saveBatchPo(options.database, decodeURIComponent(poMatch[1]), parsed.data.poNumber);
+        sendJson(response, 200, await enrichBatch(batch, await orderingInventory()));
+        return;
+      }
+
+      const itemMatch = url.pathname.match(/^\/api\/ordering\/batches\/([^/]+)\/items\/([^/]+)$/);
+      if (itemMatch) {
+        const batchId = decodeURIComponent(itemMatch[1]);
+        const itemId = decodeURIComponent(itemMatch[2]);
+        if (request.method === "DELETE") {
+          const batch = deleteBatchItem(options.database, batchId, itemId);
+          sendJson(response, 200, { batch: await enrichBatch(batch, await orderingInventory()) });
+          return;
+        }
+        requireMethod(request, "PUT");
+        const parsed = updateItemSchema.safeParse(await readJsonBody(request));
+        if (!parsed.success) throw invalidUpdateError(parsed.error.issues);
+        const existing = requireBatchItem(options.database, batchId, itemId);
+        const candidates = await historicalCandidates();
+        const input = updateInput(existing, parsed.data, candidates);
+        const batch = updateBatchItem(options.database, { batchId, itemId, ...input });
+        sendJson(response, 200, { batch: await enrichBatch(batch, await orderingInventory()) });
+        return;
+      }
+
+      const itemsMatch = url.pathname.match(/^\/api\/ordering\/batches\/([^/]+)\/items$/);
+      if (itemsMatch) {
+        requireMethod(request, "POST");
+        const parsed = addItemSchema.safeParse(await readJsonBody(request));
+        if (!parsed.success) throw invalidAddError(parsed.error.issues);
+        const batchId = decodeURIComponent(itemsMatch[1]);
+        const input =
+          "supplierProductId" in parsed.data
+            ? matchedDatabaseInput(requireCandidate(await historicalCandidates(), parsed.data.supplierProductId), parsed.data.orderQuantity)
+            : parsed.data;
+        const batch = addBatchItem(options.database, { batchId, ...input });
+        sendJson(response, 200, { batch: await enrichBatch(batch, await orderingInventory()) });
+        return;
+      }
+
+      sendJson(response, 404, { error: { code: "NOT_FOUND", message: "未找到下单接口。" } });
+    } catch (error) {
+      sendError(response, error);
+    }
+  });
+}
+
+function requireBatchItem(database: Database.Database, batchId: string, itemId: string): PurchaseBatchItem {
+  const item = getBatchDetail(database, batchId).items.find((entry) => entry.id === itemId);
+  if (!item) throw new PurchasingApiError("ORDER_BATCH_ITEM_NOT_FOUND");
+  return item;
+}
+
+function updateInput(
+  existing: PurchaseBatchItem,
+  input: z.infer<typeof updateItemSchema>,
+  candidates: HistoricalProductCandidate[]
+) {
+  const keys = Object.keys(input);
+  const requestedProductId = input.supplierProductId === undefined ? existing.supplierProductId : input.supplierProductId;
+  if (requestedProductId) {
+    if (keys.some((key) => key !== "supplierProductId" && key !== "orderQuantity")) {
+      throw new PurchasingApiError("INVALID_ORDERING_DATA");
+    }
+    return matchedDatabaseInput(
+      requireCandidate(candidates, requestedProductId),
+      input.orderQuantity ?? existing.orderQuantity
+    );
+  }
+  if (existing.supplierProductId && input.supplierProductId === null) {
+    throw new PurchasingApiError("INVALID_ORDERING_DATA");
+  }
+  return input;
+}
+
+function requireCandidate(candidates: HistoricalProductCandidate[], supplierProductId: string) {
+  const candidate = candidates.find((entry) => entry.id === supplierProductId);
+  if (!candidate || !isSupplierGroup(candidate.supplierCode)) {
+    throw new PurchasingApiError("SUPPLIER_PRODUCT_NOT_FOUND");
+  }
+  return candidate as HistoricalProductCandidate & { supplierCode: Exclude<SupplierGroup, "UNMATCHED"> };
+}
+
+function matchedDatabaseInput(
+  candidate: HistoricalProductCandidate & { supplierCode: Exclude<SupplierGroup, "UNMATCHED"> },
+  orderQuantity: number
+) {
+  return {
+    productName: candidate.productName,
+    supplierGroup: candidate.supplierCode,
+    supplierProductId: candidate.id,
+    supplierProductCode: candidate.supplierProductCode,
+    supplierName: candidate.supplierName,
+    packSize: candidate.packSize,
+    orderQuantity,
+    orderUnit: candidate.packSize,
+    lastPrice: candidate.latestPrice,
+    purchaseCount: candidate.purchaseCount,
+    latestPurchaseDate: candidate.latestPurchaseDate
+  };
+}
+
+function rehydrateMatchedItems(
+  database: Database.Database,
+  batch: PurchaseBatch,
+  candidates: HistoricalProductCandidate[]
+): PurchaseBatch {
+  let current = batch;
+  for (const item of batch.items) {
+    if (!item.supplierProductId) continue;
+    current = updateBatchItem(database, {
+      batchId: batch.id,
+      itemId: item.id,
+      ...matchedDatabaseInput(requireCandidate(candidates, item.supplierProductId), item.orderQuantity)
+    });
+  }
+  return current;
+}
+
+async function enrichBatch(batch: PurchaseBatch, inventory: Map<string, OrderingInventorySnapshot>) {
+  return {
+    ...batch,
+    supplierGroups: batch.suppliers,
+    items: batch.items.map((item) => {
+      if (!item.supplierProductId) return item;
+      const snapshot = inventory.get(item.supplierProductId);
+      return {
+        ...item,
+        totalEquivalentQuantity: snapshot?.totalEquivalentQuantity ?? 0,
+        locations: (snapshot?.locations ?? []).map((location) => ({
+          ...location,
+          deepLink: inventoryDeepLink(item.supplierProductId as string, location)
+        }))
+      };
+    })
+  };
+}
+
+function invalidAddError(issues: z.core.$ZodIssue[]) {
+  return issues.some((issue) => issue.path.includes("orderQuantity"))
+    ? new PurchasingApiError("INVALID_ORDER_QUANTITY")
+    : new PurchasingApiError("INVALID_ORDERING_DATA");
+}
+
+function invalidUpdateError(issues: z.core.$ZodIssue[]) {
+  return invalidAddError(issues);
+}
+
+function isSupplierGroup(value: string): value is Exclude<SupplierGroup, "UNMATCHED"> {
+  return value === "CMP" || value === "MM" || value === "BRK";
+}
+
+function requireMethod(request: IncomingMessage, method: "GET" | "POST" | "PUT") {
+  if (request.method !== method) {
+    throw new MethodNotAllowedError(method);
+  }
+}
+
+class MethodNotAllowedError extends Error {
+  constructor(readonly allowedMethod: string) {
+    super("METHOD_NOT_ALLOWED");
+  }
+}
+
+async function readJsonBody(request: IncomingMessage) {
+  const chunks: Buffer[] = [];
+  let length = 0;
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    length += buffer.length;
+    if (length > 1024 * 1024) throw new PurchasingApiError("INVALID_ORDERING_DATA");
+    chunks.push(buffer);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new PurchasingApiError("INVALID_ORDERING_DATA");
+  }
+}
+
+function sendError(response: ServerResponse, error: unknown) {
+  if (error instanceof MethodNotAllowedError) {
+    response.setHeader("Allow", error.allowedMethod);
+    sendJson(response, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "不支持的请求方法。" } });
+    return;
+  }
+  const code = readOrderingErrorCode(error);
+  if (code) {
+    const apiError = error instanceof PurchasingApiError ? error : new PurchasingApiError(code);
+    sendJson(response, apiError.status, { error: { code: apiError.code, message: apiError.message } });
+    return;
+  }
+  sendJson(response, 500, { error: { code: "ORDERING_SERVICE_UNAVAILABLE", message: "下单服务暂时不可用。" } });
+}
+
+function readOrderingErrorCode(error: unknown): PurchasingApiErrorCode | null {
+  if (!error || typeof error !== "object" || !("code" in error) || typeof error.code !== "string") return null;
+  return orderingErrorCodes.has(error.code as PurchasingApiErrorCode) ? (error.code as PurchasingApiErrorCode) : null;
+}
+
+function sendJson(response: ServerResponse, status: number, value: unknown) {
+  response.statusCode = status;
+  response.setHeader("Content-Type", "application/json; charset=utf-8");
+  response.end(JSON.stringify(value));
+}

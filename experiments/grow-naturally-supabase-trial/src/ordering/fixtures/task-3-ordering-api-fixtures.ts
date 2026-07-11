@@ -1,5 +1,5 @@
-import type { HistoricalProductCandidate } from "../../server/purchasing/matching";
-import type { OrderingInventorySnapshot } from "../../server/ordering/inventory";
+import type { HistoricalProductCandidate } from "../../../server/purchasing/matching";
+import type { OrderingInventorySnapshot } from "../../../server/ordering/inventory";
 
 export const orderingTask3Candidates: HistoricalProductCandidate[] = [
   {
@@ -62,4 +62,3 @@ export const orderingTask3InventorySnapshot = new Map<string, OrderingInventoryS
     }
   ]
 ]);
-

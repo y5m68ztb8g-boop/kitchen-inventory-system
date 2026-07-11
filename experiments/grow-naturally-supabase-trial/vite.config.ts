@@ -9,6 +9,8 @@ import { createPurchasingDatabase } from "./server/purchasing/database";
 import { buildCurrentInventoryEntries } from "./server/purchasing/currentInventory";
 import { recognisePurchasePdf, recogniseWhiteboard } from "./server/purchasing/openaiWhiteboard";
 import { installPurchasingRoutes } from "./server/purchasing/routes";
+import { buildOrderingInventorySnapshot } from "./server/ordering/inventory";
+import { installOrderingRoutes } from "./server/ordering/routes";
 
 const inventoryDatabasePath = resolve(
   process.cwd(),
@@ -247,6 +249,16 @@ export default defineConfig(({ mode }) => {
               baseURL: env.OPENAI_BASE_URL,
               model: env.OPENAI_WHITEBOARD_MODEL
             })
+        });
+        installOrderingRoutes(server, {
+          database: purchasingDatabase,
+          historicalCandidates: async () =>
+            (await server.ssrLoadModule("/src/generated/supplierCatalogue.ts")).SUPPLIER_CATALOGUE,
+          orderingInventory: async () =>
+            buildOrderingInventorySnapshot(
+              await readInventoryDatabase(),
+              (await server.ssrLoadModule("/src/generated/freezerInventory.ts")).FREEZER_INVENTORY
+            )
         });
 
         server.middlewares.use("/api/inventory-db", async (request, response) => {
