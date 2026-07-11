@@ -1,7 +1,6 @@
 // @vitest-environment node
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import * as playwright from "playwright";
 
 import {
   createFakeBrakesAdapter,
@@ -17,12 +16,24 @@ type QuickAddResult = {
 };
 type QuickAddRunner = { fill(items: QuickAddItem[]): Promise<QuickAddResult[]> };
 type QuickAddModule = {
-  createBrakesQuickAddRunner(input?: { adapter?: FakeBrakesAdapter }): QuickAddRunner;
+  createBrakesQuickAddRunner(
+    input?: { adapter?: FakeBrakesAdapter; adapterFactory?: () => Promise<FakeBrakesAdapter> }
+  ): QuickAddRunner;
   buildRetryQueue(items: Array<QuickAddItem & { brakesStatus: "Pending" | QuickAddResult["status"] }>): QuickAddItem[];
 };
 
 async function loadQuickAddModule(): Promise<QuickAddModule> {
+  vi.resetModules();
   return import("../../server/ordering/brakesQuickAdd") as Promise<QuickAddModule>;
+}
+
+function createAdapterWithClosedCart(
+  outcomes: Record<string, "confirmed" | "invalid" | "ambiguous">,
+  onOpenCart: () => Promise<void>
+): FakeBrakesAdapter {
+  const adapter = createFakeBrakesAdapter(outcomes);
+  adapter.openCart = onOpenCart;
+  return adapter;
 }
 
 describe("Brakes Quick Add runner", () => {
@@ -113,25 +124,74 @@ describe("Brakes Quick Add runner", () => {
   });
 
   it("returns Failed for every item when the Brakes adapter fails to initialize", async () => {
-    const launchSpy = vi.spyOn(playwright.chromium, "launchPersistentContext").mockRejectedValue(
-      new Error("Brakes adapter 初始化失败")
-    );
+    const adapterFactory = vi.fn().mockRejectedValue(new Error("Brakes adapter 初始化失败"));
+    const runner = module.createBrakesQuickAddRunner({ adapterFactory });
 
-    try {
-      const runner = module.createBrakesQuickAddRunner();
-      const result = await runner.fill(task6BrakesQueue);
+    const result = await runner.fill(task6BrakesQueue);
 
-      expect(result).toHaveLength(task6BrakesQueue.length);
-      for (const [index, item] of task6BrakesQueue.entries()) {
-        expect(result[index]).toMatchObject({
-          itemId: item.itemId,
-          status: "Failed"
-        });
-        expect(typeof result[index].message).toBe("string");
-        expect(result[index].message?.trim()).not.toBe("");
+    expect(adapterFactory).toHaveBeenCalledTimes(1);
+    expect(result).toHaveLength(task6BrakesQueue.length);
+    for (const [index, item] of task6BrakesQueue.entries()) {
+      expect(result[index]).toMatchObject({
+        itemId: item.itemId,
+        status: "Failed"
+      });
+      expect(typeof result[index].message).toBe("string");
+      expect(result[index].message?.trim()).not.toBe("");
+    }
+  });
+
+  it("retries with a fresh adapter when cached openCart fails due to a closed browser", async () => {
+    const firstAdapter = createAdapterWithClosedCart(
+      { "135177": "confirmed", "BAD-404": "invalid", "WAIT-101": "ambiguous" },
+      async () => {
+        throw new Error("Target page, context or browser has been closed");
       }
-    } finally {
-      launchSpy.mockRestore();
+    );
+    const secondAdapter = createFakeBrakesAdapter({ "135177": "confirmed", "BAD-404": "invalid", "WAIT-101": "ambiguous" });
+    const adapterFactory = vi.fn()
+      .mockResolvedValueOnce(firstAdapter)
+      .mockResolvedValueOnce(secondAdapter);
+
+    const runner = module.createBrakesQuickAddRunner({ adapterFactory });
+    const result = await runner.fill(task6BrakesQueue);
+
+    expect(adapterFactory).toHaveBeenCalledTimes(2);
+    expect(result).toEqual([
+      { itemId: "brakes-confirmed", status: "Added", message: null },
+      { itemId: "brakes-invalid", status: "InvalidCode", message: "Brakes 明确返回产品编码无效。" },
+      { itemId: "brakes-ambiguous", status: "AwaitingConfirmation", message: null }
+    ]);
+  });
+
+  it("returns Failed for every item when openCart retry also fails", async () => {
+    const firstAdapter = createAdapterWithClosedCart(
+      { "135177": "confirmed", "BAD-404": "invalid", "WAIT-101": "ambiguous" },
+      async () => {
+        throw new Error("Target page, context or browser has been closed");
+      }
+    );
+    const secondAdapter = createAdapterWithClosedCart(
+      { "135177": "confirmed", "BAD-404": "invalid", "WAIT-101": "ambiguous" },
+      async () => {
+        throw new Error("Target page, context or browser has been closed");
+      }
+    );
+    const adapterFactory = vi.fn()
+      .mockResolvedValueOnce(firstAdapter)
+      .mockResolvedValueOnce(secondAdapter);
+
+    const runner = module.createBrakesQuickAddRunner({ adapterFactory });
+    const result = await runner.fill(task6BrakesQueue);
+
+    expect(adapterFactory).toHaveBeenCalledTimes(2);
+    expect(result).toHaveLength(task6BrakesQueue.length);
+    for (const [index, item] of task6BrakesQueue.entries()) {
+      expect(result[index]).toMatchObject({
+        itemId: item.itemId,
+        status: "Failed"
+      });
+      expect(result[index].message).toBe("Target page, context or browser has been closed");
     }
   });
 });

@@ -11,12 +11,13 @@ export type BrakesQuickAddAdapter = {
 
 export function createBrakesQuickAddRunner(input: {
   adapter?: BrakesQuickAddAdapter;
+  adapterFactory?: () => Promise<BrakesQuickAddAdapter>;
   profilePath?: string;
 }): BrakesQuickAddRunner {
   let adapterPromise: Promise<BrakesQuickAddAdapter> | null = null;
   const getAdapter = async () => {
     if (input.adapter) return Promise.resolve(input.adapter);
-    adapterPromise ??= createPlaywrightAdapter(input.profilePath || "local-data/brakes-chrome-profile");
+    adapterPromise ??= input.adapterFactory?.() ?? createPlaywrightAdapter(input.profilePath || "local-data/brakes-chrome-profile");
     try {
       return await adapterPromise;
     } catch (error) {
@@ -24,13 +25,25 @@ export function createBrakesQuickAddRunner(input: {
       throw error;
     }
   };
+  const openCart = async () => {
+    let adapter = await getAdapter();
+    try {
+      await adapter.openCart();
+      return adapter;
+    } catch (error) {
+      if (input.adapter || !isClosedBrowserError(error)) throw error;
+      adapterPromise = null;
+      adapter = await getAdapter();
+      await adapter.openCart();
+      return adapter;
+    }
+  };
 
   return {
     async fill(items) {
       let adapter: BrakesQuickAddAdapter;
       try {
-        adapter = await getAdapter();
-        await adapter.openCart();
+        adapter = await openCart();
       } catch (error) {
         const message = error instanceof Error ? error.message : "Brakes Quick Add 无法打开购物车。";
         return items.map((item) => ({ itemId: item.itemId, status: "Failed" as const, message }));
@@ -54,6 +67,10 @@ export function createBrakesQuickAddRunner(input: {
       return results;
     }
   };
+}
+
+function isClosedBrowserError(error: unknown): boolean {
+  return error instanceof Error && /target page, context or browser has been closed/i.test(error.message);
 }
 
 export function buildRetryQueue(
