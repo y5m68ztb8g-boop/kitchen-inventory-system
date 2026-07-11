@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { WhiteboardReviewItem } from "../../src/purchasing/types";
 import { PurchasingApiError } from "./errors";
+import { migratePurchaseIntakesForOrdering, orderingSchema } from "../ordering/schema";
 import {
   purchaseIntakeSchema,
   type HandOffIntakeInput,
@@ -106,7 +107,9 @@ export function createPurchasingDatabase(path: string | Database.Database): Data
   }
   const database = typeof path === "string" ? new Database(path) : path;
   database.pragma("foreign_keys = ON");
+  migratePurchaseIntakesForOrdering(database);
   database.exec(schema);
+  database.exec(orderingSchema);
   return database;
 }
 

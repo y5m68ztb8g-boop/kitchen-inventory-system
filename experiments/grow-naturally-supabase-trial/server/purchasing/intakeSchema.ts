@@ -1,6 +1,6 @@
 export type PurchaseIntakeSource = "camera" | "image" | "pdf" | "spreadsheet";
 
-export type PurchaseIntakeStatus = "Draft" | "Pending" | "ReadyForPurchase" | "RecognitionFailed";
+export type PurchaseIntakeStatus = "Draft" | "Pending" | "ReadyForPurchase" | "AddedToOrder" | "RecognitionFailed";
 
 export type PurchaseIntakeItem = {
   clientId: string;
@@ -50,7 +50,7 @@ export type HandOffIntakeInput = {
 export const purchaseIntakeSchema = `
   CREATE TABLE IF NOT EXISTS purchase_intakes (
     id TEXT PRIMARY KEY,
-    status TEXT NOT NULL CHECK (status IN ('Draft', 'Pending', 'ReadyForPurchase', 'RecognitionFailed')),
+    status TEXT NOT NULL CHECK (status IN ('Draft', 'Pending', 'ReadyForPurchase', 'AddedToOrder', 'RecognitionFailed')),
     source_type TEXT NOT NULL CHECK (source_type IN ('camera', 'image', 'pdf', 'spreadsheet')),
     original_filename TEXT NOT NULL,
     original_mime_type TEXT NOT NULL,
