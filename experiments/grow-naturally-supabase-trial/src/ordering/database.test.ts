@@ -183,6 +183,38 @@ describe("ordering purchasing database", () => {
     const migrated = createPurchasingDatabase(database);
 
     expect(readIntakeStatus(migrated, "intake-1")).toBe("ReadyForPurchase");
+    expect(
+      migrated
+        .prepare(`
+          SELECT id, intake_id AS intakeId, product_name AS productName,
+                 quantity, supplier_product_id AS supplierProductId
+            FROM purchase_intake_items
+           WHERE id = ?
+        `)
+        .get("intake-1:item-1")
+    ).toMatchObject({
+      id: "intake-1:item-1",
+      intakeId: "intake-1",
+      productName: "Bread rolls",
+      quantity: 4,
+      supplierProductId: "BRK-1000"
+    });
+    expect(
+      migrated
+        .prepare(`
+          SELECT intake_id AS intakeId, client_id AS clientId,
+                 normalised_name AS normalisedName,
+                 supplier_product_id AS supplierProductId
+            FROM purchase_match_feedback_item_state
+           WHERE intake_id = ? AND client_id = ?
+        `)
+        .get("intake-1", "item-1")
+    ).toMatchObject({
+      intakeId: "intake-1",
+      clientId: "item-1",
+      normalisedName: "bread rolls",
+      supplierProductId: "BRK-1000"
+    });
     expect(migrated.pragma("foreign_key_check")).toEqual([]);
     expect(() => setIntakeStatus(migrated, "intake-1", "AddedToOrder")).not.toThrow();
   });
@@ -285,7 +317,7 @@ describe("ordering purchasing database", () => {
 
     expect(getBatchDetail(database, batch.id)).toMatchObject({
       poNumber: "PO-7788",
-      status: "PartiallyOrdered"
+      status: "Ordered"
     });
   });
 
