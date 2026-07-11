@@ -9,6 +9,7 @@ import {
   createPurchasingDatabase,
   getOrCreateDraftBatch,
   getBatchDetail,
+  addBatchItem,
   type OrderingProfile
 } from "../../server/ordering/database";
 import { orderingTask3Candidates, orderingTask3InventorySnapshot } from "./fixtures/task-3-ordering-api-fixtures";
@@ -29,6 +30,8 @@ type RouteEnvironment = {
   database: Database.Database;
   install: InstallOrderingRoutes;
 };
+
+const intakeStatusQuery = "SELECT status FROM purchase_intakes WHERE id = ?";
 
 const resources: Array<{ database: Database.Database; server: Server }> = [];
 
@@ -78,7 +81,32 @@ afterEach(async () => {
   );
 });
 
-function createReadyIntake(database: Database.Database) {
+function createReadyIntake(
+  database: Database.Database,
+  options: {
+    intakeId?: string;
+    supplierProductId?: string;
+    supplierName?: string;
+    supplierCode?: string;
+    supplierProductCode?: string;
+    productName?: string;
+    packSize?: string;
+    lastPrice?: number;
+    purchaseCount?: number;
+    latestPurchaseDate?: string;
+  } = {}
+) {
+  const intakeId = options.intakeId ?? "intake-1";
+  const supplierProductId = options.supplierProductId ?? "BRK-100243";
+  const supplierName = options.supplierName ?? "Brakes";
+  const supplierCode = options.supplierCode ?? "BRK";
+  const supplierProductCode = options.supplierProductCode ?? "100243";
+  const productName = options.productName ?? "Bread roll";
+  const packSize = options.packSize ?? "8x6";
+  const lastPrice = options.lastPrice ?? 12.5;
+  const purchaseCount = options.purchaseCount ?? 5;
+  const latestPurchaseDate = options.latestPurchaseDate ?? "2026-06-30";
+
   database.prepare(
     `
     INSERT INTO purchase_intakes (
@@ -86,27 +114,44 @@ function createReadyIntake(database: Database.Database) {
       original_size_bytes, stored_size_bytes, source_blob, ai_model, unreadable_text_json,
       general_notes, created_at, updated_at, handed_off_at
     ) VALUES (
-      'intake-1', 'ReadyForPurchase', 'pdf', 'order-sheet.pdf', 'application/pdf',
+      ?, 'ReadyForPurchase', 'pdf', 'order-sheet.pdf', 'application/pdf',
       'application/pdf', 10, 10, X'010203', null, '[]', 'from kitchen',
       '2026-07-11T10:00:00.000Z', '2026-07-11T10:00:00.000Z', '2026-07-11T10:00:00.000Z'
     )
     `
-  ).run();
+  ).run(intakeId);
 
-  database.prepare(
-    `
-    INSERT INTO purchase_intake_items (
-      id, intake_id, row_order, department, raw_text, product_name, quantity, unit, notes,
-      confidence, manual_reviewed, supplier_product_id, supplier_name, supplier_code, supplier_product_code,
-      supplier_product_name, supplier_pack_size, supplier_last_price, supplier_purchase_count,
-      supplier_last_purchase_date, current_inventory_quantity, created_at, updated_at
-    ) VALUES (
-      'intake-1:item-1', 'intake-1', 0, 'Kitchen', '4 roll', 'Bread roll', 4, 'tray', null,
-      0.99, 1, 'BRK-100243', 'Brakes', 'BRK', '100243',
-      'Bread Roll', '8x6', 12.5, 5, '2026-06-30', 1.5, '2026-07-11T10:00:00.000Z', '2026-07-11T10:00:00.000Z'
+  const itemId = `${intakeId}:item-1`;
+  database
+    .prepare(
+      `
+      INSERT INTO purchase_intake_items (
+        id, intake_id, row_order, department, raw_text, product_name, quantity, unit, notes,
+        confidence, manual_reviewed, supplier_product_id, supplier_name, supplier_code, supplier_product_code,
+        supplier_product_name, supplier_pack_size, supplier_last_price, supplier_purchase_count,
+        supplier_last_purchase_date, current_inventory_quantity, created_at, updated_at
+      ) VALUES (
+        ?, ?, 0, 'Kitchen', '4 roll', ?, 4, 'tray', null,
+        0.99, 1, ?, ?, ?, ?,
+        'Bread Roll', ?, ?, ?, ?, 1.5, '2026-07-11T10:00:00.000Z', '2026-07-11T10:00:00.000Z'
+      )
+      `
     )
-    `
-  ).run();
+    .run(
+      itemId,
+      intakeId,
+      productName,
+      supplierProductId,
+      supplierName,
+      supplierCode,
+      supplierProductCode,
+      packSize,
+      lastPrice,
+      purchaseCount,
+      latestPurchaseDate
+    );
+
+  return intakeId;
 }
 
 async function requestJson(url: string, options: RequestInit = {}) {
@@ -293,6 +338,242 @@ describe("ordering routes", () => {
     });
     expect(insufficient.response.status).toBe(400);
     expect(insufficient.payload).toMatchObject({ error: { code: "INVALID_ORDER_QUANTITY" } });
+  });
+
+  it("keeps intake and batch unchanged when matched rehydrate fails during intake import", async () => {
+    const database = createPurchasingDatabase(":memory:");
+    createReadyIntake(database, { supplierName: "Brakes" });
+    const batch = getOrCreateDraftBatch(database, "2026-07-11T10:00:00.000Z");
+
+    database.exec(`
+      CREATE TRIGGER IF NOT EXISTS force_rehydrate_failure
+      BEFORE UPDATE OF supplier_name ON purchase_batch_items
+      WHEN NEW.supplier_name = 'Canonical Brakes'
+      BEGIN
+        SELECT RAISE(ABORT, 'forced rehydrate failure');
+      END
+    `);
+
+    const brokenCandidates = [
+      {
+        id: "BRK-100243",
+        latestPrice: 12.5,
+        latestPurchaseDate: "2026-06-30",
+        packSize: "8x6",
+        productName: "Bread Roll",
+        purchaseCount: 5,
+        supplierCode: "BRK",
+        supplierName: "Canonical Brakes",
+        supplierProductCode: "100243"
+      }
+    ];
+
+    const server = await createTestServer({
+      database,
+      historicalCandidates: () => brokenCandidates,
+      orderingInventory: () => orderingTask3InventorySnapshot
+    });
+    const baseUrl = await startServer(server);
+
+    const failedImport = await requestJson(`${baseUrl}/api/ordering/current/intakes/intake-1`, { method: "POST" });
+    expect(failedImport.response.status).toBe(500);
+    const intakeStatus = database.prepare(intakeStatusQuery).pluck().get("intake-1");
+    expect(intakeStatus).toBe("ReadyForPurchase");
+    expect(getBatchDetail(database, batch.id).items).toHaveLength(0);
+  });
+
+  it("transitions matched item to unmatched in one update payload and rejects null-only product conversion", async () => {
+    const database = createPurchasingDatabase(":memory:");
+    const draftBatch = getOrCreateDraftBatch(database).id;
+
+    const server = await createTestServer({
+      database,
+      historicalCandidates: () => orderingTask3Candidates,
+      orderingInventory: () => orderingTask3InventorySnapshot
+    });
+    const baseUrl = await startServer(server);
+
+    const addMatch = await requestJson(`${baseUrl}/api/ordering/batches/${encodeURIComponent(draftBatch)}/items`, {
+      body: JSON.stringify({ supplierProductId: "BRK-100243", orderQuantity: 2 }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    expect(addMatch.response.status).toBe(200);
+    const itemId = addMatch.payload?.batch?.items?.[0]?.id as string | undefined;
+    expect(itemId).toBeTypeOf("string");
+
+    const convertToUnmatched = await requestJson(
+      `${baseUrl}/api/ordering/batches/${encodeURIComponent(draftBatch)}/items/${encodeURIComponent(String(itemId))}`,
+      {
+        body: JSON.stringify({
+          supplierProductId: null,
+          productName: "Manual Bread",
+          orderQuantity: 4,
+          orderUnit: "crate",
+          supplierGroup: "UNMATCHED",
+          supplierProductCode: null
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "PUT"
+      }
+    );
+    expect(convertToUnmatched.response.status).toBe(200);
+    const item = (
+      convertToUnmatched.payload?.batch?.items as Array<Record<string, unknown>> | undefined
+    )?.find((entry) => entry.id === itemId);
+    expect(item).toMatchObject({
+      supplierProductId: null,
+      supplierGroup: "UNMATCHED",
+      productName: "Manual Bread",
+      orderQuantity: 4,
+      orderUnit: "crate",
+      supplierProductCode: null,
+      supplierName: null,
+      packSize: null,
+      lastPrice: null,
+      purchaseCount: null,
+      latestPurchaseDate: null
+    });
+
+    const nullOnly = await requestJson(
+      `${baseUrl}/api/ordering/batches/${encodeURIComponent(draftBatch)}/items/${encodeURIComponent(String(itemId))}`,
+      {
+        body: JSON.stringify({ supplierProductId: null }),
+        headers: { "Content-Type": "application/json" },
+        method: "PUT"
+      }
+    );
+    expect(nullOnly.response.status).toBe(400);
+    expect(nullOnly.payload).toMatchObject({ error: { code: "INVALID_ORDERING_DATA" } });
+  });
+
+  it("returns INTAKE_ALREADY_ADDED when re-posting same intake even if candidates become empty", async () => {
+    const database = createPurchasingDatabase(":memory:");
+    createReadyIntake(database);
+
+    const candidateSource = { entries: orderingTask3Candidates };
+    const server = await createTestServer({
+      database,
+      historicalCandidates: () => candidateSource.entries,
+      orderingInventory: () => orderingTask3InventorySnapshot
+    });
+    const baseUrl = await startServer(server);
+
+    const firstImport = await requestJson(`${baseUrl}/api/ordering/current/intakes/intake-1`, { method: "POST" });
+    expect(firstImport.response.status).toBe(200);
+    candidateSource.entries = [];
+
+    const secondImport = await requestJson(`${baseUrl}/api/ordering/current/intakes/intake-1`, { method: "POST" });
+    expect(secondImport.response.status).toBe(400);
+    expect(secondImport.payload).toMatchObject({ error: { code: "INTAKE_ALREADY_ADDED" } });
+  });
+
+  it("rejects extra unknown fields in strict body schemas", async () => {
+    const database = createPurchasingDatabase(":memory:");
+    const draftBatch = getOrCreateDraftBatch(database).id;
+
+    const server = await createTestServer({
+      database,
+      historicalCandidates: () => orderingTask3Candidates,
+      orderingInventory: () => orderingTask3InventorySnapshot
+    });
+    const baseUrl = await startServer(server);
+
+    const extraFieldResponse = await requestJson(`${baseUrl}/api/ordering/batches/${encodeURIComponent(draftBatch)}/items`, {
+      body: JSON.stringify({
+        supplierProductId: "BRK-100243",
+        orderQuantity: 2,
+        unexpectedField: "not-allowed"
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    expect(extraFieldResponse.response.status).toBe(400);
+    expect(extraFieldResponse.payload).toMatchObject({ error: { code: "INVALID_ORDERING_DATA" } });
+  });
+
+  it("uses fresh orderingInventory snapshots on each current GET", async () => {
+    const database = createPurchasingDatabase(":memory:");
+    const draftBatch = getOrCreateDraftBatch(database).id;
+    const snapshots = [
+      new Map([
+        [
+          "BRK-100243",
+          {
+            supplierProductId: "BRK-100243",
+            totalEquivalentQuantity: 3.5,
+            locations: [
+              {
+                warehouse: "freezer",
+                warehouseLabel: "冷冻库",
+                locationCode: "A1",
+                displayQuantity: "1.5",
+                equivalentQuantity: 1.5
+              }
+            ]
+          }
+        ]
+      ]),
+      new Map([
+        [
+          "BRK-100243",
+          {
+            supplierProductId: "BRK-100243",
+            totalEquivalentQuantity: 11.75,
+            locations: [
+              {
+                warehouse: "dry-store",
+                warehouseLabel: "干货库",
+                locationCode: "C0",
+                displayQuantity: "11.75",
+                equivalentQuantity: 11.75
+              }
+            ]
+          }
+        ]
+      ])
+    ];
+
+    let inventoryCallCount = 0;
+    const server = await createTestServer({
+      database,
+      historicalCandidates: () => orderingTask3Candidates,
+      orderingInventory: () => {
+        const snapshot = snapshots[inventoryCallCount % snapshots.length];
+        inventoryCallCount += 1;
+        return snapshot;
+      }
+    });
+    const baseUrl = await startServer(server);
+
+    addBatchItem(database, {
+      batchId: draftBatch,
+      productName: "Bread Roll",
+      supplierGroup: "BRK",
+      supplierProductId: "BRK-100243",
+      supplierProductCode: "100243",
+      supplierName: "Brakes",
+      packSize: "8x6",
+      orderQuantity: 2,
+      orderUnit: "tray",
+      lastPrice: 12.5,
+      purchaseCount: 5,
+      latestPurchaseDate: "2026-06-30"
+    });
+
+    const firstCurrent = await requestJson(`${baseUrl}/api/ordering/current`);
+    expect(firstCurrent.response.status).toBe(200);
+    const firstSnapshotItem = firstCurrent.payload?.batch?.items?.[0] as Record<string, unknown> | undefined;
+    expect(firstSnapshotItem).toMatchObject({ totalEquivalentQuantity: 3.5 });
+    expect(firstSnapshotItem?.locations).toEqual(expect.arrayContaining([expect.objectContaining({ warehouse: "freezer" })]));
+
+    const secondCurrent = await requestJson(`${baseUrl}/api/ordering/current`);
+    expect(secondCurrent.response.status).toBe(200);
+    const secondSnapshotItem = secondCurrent.payload?.batch?.items?.[0] as Record<string, unknown> | undefined;
+    expect(secondSnapshotItem).toMatchObject({ totalEquivalentQuantity: 11.75 });
+    expect(secondSnapshotItem?.locations).toEqual(
+      expect.arrayContaining([expect.objectContaining({ warehouse: "dry-store", equivalentQuantity: 11.75 })])
+    );
   });
 
   it("profile endpoints round-trip name/email config", async () => {
