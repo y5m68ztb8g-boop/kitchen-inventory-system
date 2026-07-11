@@ -1273,4 +1273,11 @@ describe("Home", () => {
 
     expect(screen.getByText("£53.25")).toBeInTheDocument();
   });
+
+  it("opens the selected inventory location from an ordering deep link", async () => {
+    window.location.hash = "#freezer?supplierProductId=BRK-100243&location=A1";
+    render(<App />);
+
+    expect(screen.getByRole("button", { name: "A1" })).toHaveAttribute("aria-pressed", "true");
+  });
 });
