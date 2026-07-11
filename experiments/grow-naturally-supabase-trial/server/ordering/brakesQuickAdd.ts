@@ -14,16 +14,27 @@ export function createBrakesQuickAddRunner(input: {
   profilePath?: string;
 }): BrakesQuickAddRunner {
   let adapterPromise: Promise<BrakesQuickAddAdapter> | null = null;
-  const getAdapter = () => {
+  const getAdapter = async () => {
     if (input.adapter) return Promise.resolve(input.adapter);
     adapterPromise ??= createPlaywrightAdapter(input.profilePath || "local-data/brakes-chrome-profile");
-    return adapterPromise;
+    try {
+      return await adapterPromise;
+    } catch (error) {
+      adapterPromise = null;
+      throw error;
+    }
   };
 
   return {
     async fill(items) {
-      const adapter = await getAdapter();
-      await adapter.openCart();
+      let adapter: BrakesQuickAddAdapter;
+      try {
+        adapter = await getAdapter();
+        await adapter.openCart();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Brakes Quick Add 无法打开购物车。";
+        return items.map((item) => ({ itemId: item.itemId, status: "Failed" as const, message }));
+      }
       const results: BrakesQuickAddResult[] = [];
       for (const item of items) {
         try {
@@ -59,8 +70,8 @@ async function createPlaywrightAdapter(profilePath: string): Promise<BrakesQuick
 }
 
 function pageAdapter(page: Page, _context: BrowserContext): BrakesQuickAddAdapter {
-  const codeInput = () => page.locator('input[name*="productCode"], input[aria-label*="Product code" i]').first();
-  const quantityInput = () => page.locator('input[name*="quantity"], input[aria-label*="Quantity" i]').first();
+  const codeInput = () => page.locator('input[placeholder="Product code"]:visible, input[name*="productCode"]:visible, input[aria-label*="Product code" i]:visible').first();
+  const quantityInput = () => page.locator('input[placeholder="qty"]:visible, input[name*="quantity"]:visible, input[aria-label*="Quantity" i]:visible').first();
   return {
     async openCart() { await page.goto("https://www.brake.co.uk/cart", { waitUntil: "domcontentloaded" }); },
     async fillProductCode(code) {
@@ -74,14 +85,17 @@ function pageAdapter(page: Page, _context: BrowserContext): BrakesQuickAddAdapte
       await input.fill(String(quantity));
     },
     async clickAdd() {
-      const button = page.getByRole("button", { name: /quick add|add/i }).first();
+      const currentQuickAddButton = page.getByRole("button", { name: "Add Product to Quick Order" });
+      const button = await currentQuickAddButton.isVisible().catch(() => false)
+        ? currentQuickAddButton
+        : page.getByRole("button", { name: /quick add|add/i }).first();
       if (!(await button.isVisible())) throw new Error("Brakes Quick Add 页面已变化。");
       await button.click();
     },
     async readResult(productCode) {
       const invalid = page.getByText(/invalid|not found|not recognised/i).first();
       if (await invalid.isVisible().catch(() => false)) return "invalid";
-      const confirmed = page.getByText(productCode, { exact: false }).first();
+      const confirmed = page.locator(`a[href*="/${productCode}"]`).first();
       return (await confirmed.isVisible().catch(() => false)) ? "confirmed" : "ambiguous";
     }
   };

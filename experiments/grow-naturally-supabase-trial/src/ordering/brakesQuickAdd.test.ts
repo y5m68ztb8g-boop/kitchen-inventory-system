@@ -1,6 +1,7 @@
 // @vitest-environment node
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as playwright from "playwright";
 
 import {
   createFakeBrakesAdapter,
@@ -16,7 +17,7 @@ type QuickAddResult = {
 };
 type QuickAddRunner = { fill(items: QuickAddItem[]): Promise<QuickAddResult[]> };
 type QuickAddModule = {
-  createBrakesQuickAddRunner(input: { adapter: FakeBrakesAdapter }): QuickAddRunner;
+  createBrakesQuickAddRunner(input?: { adapter?: FakeBrakesAdapter }): QuickAddRunner;
   buildRetryQueue(items: Array<QuickAddItem & { brakesStatus: "Pending" | QuickAddResult["status"] }>): QuickAddItem[];
 };
 
@@ -89,5 +90,48 @@ describe("Brakes Quick Add runner", () => {
     const forbidden = /checkout|delivery|confirm(?:-|\s)?price|price(?:-|\s)?confirmation|place(?:-|\s)?order|submit(?:-|\s)?order/i;
     expect(adapter.actions.filter((action) => forbidden.test(action))).toEqual([]);
     expect(adapter.selectors.filter((selector) => forbidden.test(selector))).toEqual([]);
+  });
+
+  it("returns Failed for every item when opening the Brakes cart fails", async () => {
+    const adapter = createFakeBrakesAdapter({ "135177": "confirmed", "BAD-404": "invalid", "WAIT-101": "ambiguous" });
+    adapter.openCart = async () => {
+      throw new Error("购物车页面尚未打开");
+    };
+    const runner = module.createBrakesQuickAddRunner({ adapter });
+
+    const result = await runner.fill(task6BrakesQueue);
+
+    expect(result).toHaveLength(task6BrakesQueue.length);
+    for (const [index, item] of task6BrakesQueue.entries()) {
+      expect(result[index]).toMatchObject({
+        itemId: item.itemId,
+        status: "Failed"
+      });
+      expect(typeof result[index].message).toBe("string");
+      expect(result[index].message?.trim()).not.toBe("");
+    }
+  });
+
+  it("returns Failed for every item when the Brakes adapter fails to initialize", async () => {
+    const launchSpy = vi.spyOn(playwright.chromium, "launchPersistentContext").mockRejectedValue(
+      new Error("Brakes adapter 初始化失败")
+    );
+
+    try {
+      const runner = module.createBrakesQuickAddRunner();
+      const result = await runner.fill(task6BrakesQueue);
+
+      expect(result).toHaveLength(task6BrakesQueue.length);
+      for (const [index, item] of task6BrakesQueue.entries()) {
+        expect(result[index]).toMatchObject({
+          itemId: item.itemId,
+          status: "Failed"
+        });
+        expect(typeof result[index].message).toBe("string");
+        expect(result[index].message?.trim()).not.toBe("");
+      }
+    } finally {
+      launchSpy.mockRestore();
+    }
   });
 });
