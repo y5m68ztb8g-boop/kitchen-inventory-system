@@ -178,7 +178,7 @@ describe("OrderingPage", () => {
     recordInventoryRecheck.mockResolvedValue(emptyBatch);
     saveBatchPo.mockResolvedValue(emptyBatch);
     saveSupplierEmailDraft.mockResolvedValue(emptyBatch);
-    runBrakesQuickAdd.mockResolvedValue(task7Batch);
+    runBrakesQuickAdd.mockResolvedValue({ batch: task7Batch });
     markSupplierOrdered.mockResolvedValue(task7Batch);
     updateOrderingInventoryLocation.mockResolvedValue(undefined);
     saveOrderingProfile.mockResolvedValue({
@@ -352,8 +352,10 @@ describe("OrderingPage", () => {
     const user = userEvent.setup();
     getCurrentOrderingBatch.mockResolvedValue({ batch: task7Batch, readyIntakes: [] });
     runBrakesQuickAdd.mockResolvedValue({
-      ...task7Batch,
-      items: task7Batch.items.map((item) => item.supplierGroup === "BRK" ? { ...item, brakesStatus: "Added" } : item)
+      batch: {
+        ...task7Batch,
+        items: task7Batch.items.map((item) => item.supplierGroup === "BRK" ? { ...item, brakesStatus: "Added" } : item)
+      }
     });
     render(<OrderingPage />);
 
@@ -376,8 +378,10 @@ describe("OrderingPage", () => {
     };
     getCurrentOrderingBatch.mockResolvedValue({ batch: retryBatch, readyIntakes: [] });
     runBrakesQuickAdd.mockResolvedValue({
-      ...retryBatch,
-      items: retryBatch.items.map((item) => item.id === "item-brakes-failed" ? { ...item, brakesStatus: "Added" } : item)
+      batch: {
+        ...retryBatch,
+        items: retryBatch.items.map((item) => item.id === "item-brakes-failed" ? { ...item, brakesStatus: "Added" } : item)
+      }
     });
     render(<OrderingPage />);
 
@@ -386,6 +390,135 @@ describe("OrderingPage", () => {
     expect(runBrakesQuickAdd).toHaveBeenCalledTimes(1);
     expect(runBrakesQuickAdd).toHaveBeenCalledWith(retryBatch.id);
     expect(screen.getAllByText("已填入购物车")).toHaveLength(2);
+  });
+
+  it.each([
+    { actionLabel: "填入 Brakes 购物车", batch: task7Batch },
+    {
+      actionLabel: "重试 Brakes Quick Add",
+      batch: {
+        ...task7Batch,
+        items: [
+          ...task7Batch.items.filter((item) => item.supplierGroup !== "BRK"),
+          { ...task7Batch.items[2], brakesStatus: "Failed" },
+          { ...task7Batch.items[2], id: "item-brakes-failed", productName: "Brakes Failed Item", supplierProductCode: "FAILED-2", brakesStatus: "Failed" }
+        ]
+      }
+    }
+  ])("opens Brakes inventory review dialog when quick add returns inventory-review-required for action $actionLabel", async ({ actionLabel, batch }) => {
+    const user = userEvent.setup();
+    const reviewResponse = {
+      kind: "inventory-review-required" as const,
+      items: [
+        {
+          itemId: batch.items.find((item) => item.supplierGroup === "BRK")?.id ?? "item-brakes-1",
+          productName: "Brakes Juice Alert",
+          totalEquivalentQuantity: 8,
+          locations: [],
+          inventoryLink: "#dry-store?product=brakes-juice"
+        }
+      ]
+    };
+    getCurrentOrderingBatch.mockResolvedValue({ batch, readyIntakes: [] });
+    runBrakesQuickAdd.mockResolvedValue(reviewResponse);
+    render(<OrderingPage />);
+
+    await user.click(await screen.findByRole("button", { name: actionLabel }));
+
+    const inventoryDialog = await screen.findByRole("dialog", { name: "下单前核查库存" });
+    expect(inventoryDialog).toHaveTextContent("Brakes Juice Alert");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText("请求失败，请稍后重试。")).not.toBeInTheDocument();
+  });
+
+  it("continues BRK quick add when stock review chooses continue ordering", async () => {
+    const user = userEvent.setup();
+    const reviewResult = {
+      kind: "inventory-review-required" as const,
+      items: [
+        {
+          itemId: task7Batch.items.find((item) => item.supplierGroup === "BRK")?.id ?? "item-brakes-1",
+          productName: "Brakes Juice Alert",
+          totalEquivalentQuantity: 8,
+          locations: [],
+          inventoryLink: "#dry-store?product=brakes-juice"
+        }
+      ]
+    };
+    const readyBatch = {
+      ...task7Batch,
+      items: task7Batch.items.map((item) => (item.supplierGroup === "BRK" ? { ...item, brakesStatus: "Added" } : item))
+    };
+
+    getCurrentOrderingBatch.mockResolvedValue({ batch: task7Batch, readyIntakes: [] });
+    runBrakesQuickAdd.mockResolvedValueOnce(reviewResult);
+    runBrakesQuickAdd.mockResolvedValueOnce({ batch: readyBatch });
+    render(<OrderingPage />);
+
+    await user.click(await screen.findByRole("button", { name: "填入 Brakes 购物车" }));
+    const reviewDialog = await screen.findByRole("dialog", { name: "下单前核查库存" });
+    await user.click(within(reviewDialog).getByRole("button", { name: /库存不准确.*继续下单|继续下单/ }));
+
+    expect(runBrakesQuickAdd).toHaveBeenCalledTimes(2);
+    expect(await screen.findByText("已填入购物车")).toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      supplierLabel: "Campbells",
+      prepareButton: "准备 Campbells 邮件",
+      draftDialogTitle: "Campbells 邮件草稿",
+      supplierCode: "CMP" as const,
+      reviewItemName: "Campbells Alert Item"
+    },
+    {
+      supplierLabel: "Mark Murphy",
+      prepareButton: "准备 Mark Murphy 邮件",
+      draftDialogTitle: "Mark Murphy 邮件草稿",
+      supplierCode: "MM" as const,
+      reviewItemName: "Mark Murphy Alert Item"
+    }
+  ])("continues $supplierLabel prepare flow after stock review continue", async ({
+    prepareButton,
+    draftDialogTitle,
+    supplierCode,
+    reviewItemName
+  }) => {
+    const user = userEvent.setup();
+    const reviewResult = {
+      kind: "inventory-review-required" as const,
+      items: [
+        {
+          itemId: task7Batch.items.find((item) => item.supplierGroup === supplierCode)?.id ?? "item-task",
+          productName: reviewItemName,
+          totalEquivalentQuantity: 6,
+          locations: [],
+          inventoryLink: "#inventory-review"
+        }
+      ]
+    };
+    const draft = {
+      supplierCode,
+      to: `${supplierCode.toLowerCase()}@orders.example`,
+      subject: "Purchase order PO-5005",
+      body: `Please prepare our ${supplierCode} order.`
+    };
+
+    getCurrentOrderingBatch.mockResolvedValue({ batch: task7Batch, readyIntakes: [] });
+    prepareSupplierGroup
+      .mockResolvedValueOnce(reviewResult)
+      .mockResolvedValueOnce({
+        kind: "email-draft",
+        draft
+      });
+    render(<OrderingPage />);
+
+    await user.click(await screen.findByRole("button", { name: prepareButton }));
+    const reviewDialog = await screen.findByRole("dialog", { name: "下单前核查库存" });
+    await user.click(within(reviewDialog).getByRole("button", { name: /库存不准确.*继续下单|继续下单/ }));
+
+    expect(prepareSupplierGroup).toHaveBeenCalledTimes(2);
+    expect(await screen.findByRole("dialog", { name: draftDialogTitle })).toBeInTheDocument();
   });
 
   it("allows mark ordered only for Prepared suppliers and requires yes/no confirmation", async () => {

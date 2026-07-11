@@ -569,7 +569,7 @@ export function prepareSupplierGroup(
     const snapshot = input.inventory.get(item.supplierProductId);
     if (!snapshot || snapshot.totalEquivalentQuantity <= 1) return [];
     const check = checksByItem.get(item.id);
-    if (check?.decision === "RestockOnly" && check.snapshotKey === inventorySnapshotKey(snapshot)) return [];
+    if (check && check.snapshotKey === inventorySnapshotKey(snapshot)) return [];
     const firstLocation = snapshot.locations[0];
     return [{
       itemId: item.id,

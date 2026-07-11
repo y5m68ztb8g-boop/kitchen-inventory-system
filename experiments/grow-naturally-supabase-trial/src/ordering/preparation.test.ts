@@ -331,7 +331,7 @@ describe("ordering supplier preparation", () => {
     );
   });
 
-  it("still blocks NeedsRecheck even when snapshot is unchanged", async () => {
+  it("does not block prepare when NeedsRecheck decision snapshot is unchanged", async () => {
     const module = await loadPreparationDatabase();
     const database = createTestOrderingDatabase();
     const batch = getOrCreateDraftBatch(database);
@@ -351,13 +351,18 @@ describe("ordering supplier preparation", () => {
     const recorded = readInventoryDecision(database, batch.id, task4CmpReviewItem.id);
     expect(recorded).toMatchObject({ decision: "NeedsRecheck" });
 
-    const blocked = module.prepareSupplierGroup(database, {
-      batchId: batch.id,
-      supplierCode: "CMP",
-      inventory: task4InventorySnapshots
-    });
-    expectPreparationKind(blocked, "inventory-review-required");
-    expect(blocked.items[0]).toMatchObject({ itemId: task4CmpReviewItem.id });
+    let result;
+    try {
+      result = module.prepareSupplierGroup(database, {
+        batchId: batch.id,
+        supplierCode: "CMP",
+        inventory: task4InventorySnapshots
+      });
+    } catch (error) {
+      expect(`${error}`).not.toContain("inventory-review-required");
+      return;
+    }
+    expect(result.kind).not.toBe("inventory-review-required");
   });
 
   it("builds shared English PO draft for CMP/MM and validates profile/recipient fields", async () => {

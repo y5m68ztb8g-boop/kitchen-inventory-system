@@ -173,13 +173,27 @@ export function OrderingPage() {
 
   async function confirmRestock(item: InventoryReviewItem) {
     if (!batch || !inventoryReview) return;
+    const supplier = inventoryReview.supplier;
     await acknowledgeRestockOnly(batch.id, item.itemId);
+    const remaining = inventoryReview.items.filter((entry) => entry.itemId !== item.itemId);
+    if (remaining.length > 0) setInventoryReview({ ...inventoryReview, items: remaining });
+    else {
+      setInventoryReview(null);
+      if (supplier === "BRK") await fillBrakesCart();
+      else await prepare(supplier);
+    }
+  }
+
+  async function continueAfterInventoryReview(item: InventoryReviewItem) {
+    if (!batch || !inventoryReview) return;
+    await recordInventoryRecheck(batch.id, item.itemId);
     const remaining = inventoryReview.items.filter((entry) => entry.itemId !== item.itemId);
     if (remaining.length > 0) setInventoryReview({ ...inventoryReview, items: remaining });
     else {
       const supplier = inventoryReview.supplier;
       setInventoryReview(null);
-      await prepare(supplier);
+      if (supplier === "BRK") await fillBrakesCart();
+      else await prepare(supplier);
     }
   }
 
@@ -192,7 +206,14 @@ export function OrderingPage() {
   async function fillBrakesCart() {
     if (quickAddRunning || !batch) return;
     setQuickAddRunning(true);
-    try { setBatch(await runBrakesQuickAdd(batch.id)); }
+    try {
+      const result = await runBrakesQuickAdd(batch.id);
+      if ("batch" in result) {
+        setBatch(result.batch);
+      } else {
+        setInventoryReview({ supplier: "BRK", items: result.items });
+      }
+    }
     catch (nextError) { setError(nextError instanceof Error ? nextError.message : "Brakes Quick Add 失败。 "); }
     finally { setQuickAddRunning(false); }
   }
@@ -327,7 +348,7 @@ export function OrderingPage() {
         </section></div>
       )}
 
-      {inventoryReview && <InventoryReviewDialog items={inventoryReview.items} onClose={() => setInventoryReview(null)} onRecheck={(item) => { if (batch) void recordInventoryRecheck(batch.id, item.itemId); }} onRestockOnly={(item) => void confirmRestock(item)} onViewInventory={(item) => { const batchItem = batch.items.find((entry) => entry.id === item.itemId); const supplierProductId = item.supplierProductId || batchItem?.supplierProductId; if (supplierProductId) setStockTarget({ itemId: item.itemId, locations: item.locations, productName: item.productName, supplierProductId }); }} />}
+      {inventoryReview && <InventoryReviewDialog items={inventoryReview.items} onClose={() => setInventoryReview(null)} onContinue={(item) => void continueAfterInventoryReview(item)} onRecheck={(item) => { if (batch) void recordInventoryRecheck(batch.id, item.itemId); }} onRestockOnly={(item) => void confirmRestock(item)} onViewInventory={(item) => { const batchItem = batch.items.find((entry) => entry.id === item.itemId); const supplierProductId = item.supplierProductId || batchItem?.supplierProductId; if (supplierProductId) setStockTarget({ itemId: item.itemId, locations: item.locations, productName: item.productName, supplierProductId }); }} />}
       {stockTarget && <InventoryLocationDialog locations={stockTarget.locations} onClose={() => setStockTarget(null)} onSave={saveInventoryLocation} productName={stockTarget.productName} />}
       {emailDraft && <EmailDraftDialog draft={emailDraft} onChange={setEmailDraft} onClose={() => setEmailDraft(null)} onSave={saveDraft} supplierName={emailDraft.supplierCode === "CMP" ? "Campbells" : "Mark Murphy"} />}
       {poDialogOpen && (

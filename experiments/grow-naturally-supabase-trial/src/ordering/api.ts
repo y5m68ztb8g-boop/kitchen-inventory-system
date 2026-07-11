@@ -1,6 +1,7 @@
 import type {
   AddOrderingItemInput,
   CurrentOrderingResponse,
+  InventoryReviewItem,
   OrderingProfile,
   PreparationResult,
   PurchaseBatch,
@@ -107,12 +108,16 @@ export async function saveSupplierEmailDraft(
   return response.batch;
 }
 
-export async function runBrakesQuickAdd(batchId: string): Promise<PurchaseBatch> {
-  const response = await readOrderingResponse<{ batch: PurchaseBatch }>(
+export type BrakesQuickAddResponse =
+  | { batch: PurchaseBatch; results?: Array<{ itemId: string; status: string; message: string | null }> }
+  | { kind: "inventory-review-required"; items: InventoryReviewItem[] };
+
+export function runBrakesQuickAdd(batchId: string): Promise<BrakesQuickAddResponse> {
+  return readOrderingResponse<BrakesQuickAddResponse>(
     `/api/ordering/batches/${encodeURIComponent(batchId)}/suppliers/BRK/quick-add`,
-    { method: "POST" }
+    { method: "POST" },
+    (_response, payload) => Boolean(payload && typeof payload === "object" && "kind" in payload && payload.kind === "inventory-review-required")
   );
-  return response.batch;
 }
 
 export async function markSupplierOrdered(
@@ -173,7 +178,7 @@ function jsonRequest(method: "POST" | "PUT", body: unknown): RequestInit {
   };
 }
 
-async function readOrderingResponse<T>(url: string, options: RequestInit): Promise<T> {
+async function readOrderingResponse<T>(url: string, options: RequestInit, acceptNonOk?: (response: Response, payload: unknown) => boolean): Promise<T> {
   let response: Response;
   try {
     response = await fetch(url, options);
@@ -181,7 +186,7 @@ async function readOrderingResponse<T>(url: string, options: RequestInit): Promi
     throw new Error("网络连接失败，请检查网络后重试。");
   }
   const payload = (await response.json().catch(() => null)) as { error?: { code?: string } } | T | null;
-  if (!response.ok) {
+  if (!response.ok && !acceptNonOk?.(response, payload)) {
     const code =
       payload && typeof payload === "object" && "error" in payload && typeof payload.error?.code === "string"
         ? payload.error.code

@@ -6,13 +6,15 @@ export function InventoryReviewDialog({
   onClose,
   onViewInventory,
   onRecheck,
-  onRestockOnly
+  onRestockOnly,
+  onContinue
 }: {
   items: InventoryReviewItem[];
   onClose: () => void;
   onViewInventory: (item: InventoryReviewItem) => void;
   onRecheck: (item: InventoryReviewItem) => void;
   onRestockOnly: (item: InventoryReviewItem) => void;
+  onContinue: (item: InventoryReviewItem) => void;
 }) {
   return (
     <div className="ordering-dialog-backdrop">
@@ -30,6 +32,7 @@ export function InventoryReviewDialog({
               <div className="inventory-review-actions">
                 <button onClick={() => { onRecheck(item); onViewInventory(item); }} type="button">查看库存</button>
                 <button onClick={() => onRestockOnly(item)} type="button">仅补货</button>
+                <button onClick={() => onContinue(item)} type="button">库存不准确，继续下单</button>
               </div>
             </article>
           ))}
