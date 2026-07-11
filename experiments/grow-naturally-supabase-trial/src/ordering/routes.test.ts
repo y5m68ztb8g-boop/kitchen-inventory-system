@@ -353,6 +353,63 @@ describe("ordering routes", () => {
     expect(insufficient.payload).toMatchObject({ error: { code: "INVALID_ORDER_QUANTITY" } });
   });
 
+  it("updates a legacy history item with empty orderUnit via PUT quantity", async () => {
+    const database = createPurchasingDatabase(":memory:");
+    const batch = getOrCreateDraftBatch(database, "2026-07-11T10:00:00.000Z");
+    const legacyItemId = "legacy-mm-item";
+    database
+      .prepare(
+        `INSERT INTO purchase_batch_items (
+           id, batch_id, row_order, product_name, supplier_group, supplier_product_id,
+           supplier_product_code, supplier_name, pack_size, order_quantity, order_unit,
+           last_price, purchase_count, latest_purchase_date, brakes_status, brakes_message,
+           created_at, updated_at
+         )
+         VALUES (?, ?, 0, 'Legacy Orange Juice', 'MM', 'MM-LEGACY', 'L-100', 'Mark Murphy', '12x1ltr', 1, '', 5.2, 2, '2026-06-30', 'Pending', NULL, '2026-07-11T10:00:00.000Z', '2026-07-11T10:00:00.000Z')`
+      )
+      .run(legacyItemId, batch.id);
+
+    const server = await createTestServer({
+      database,
+      historicalCandidates: () => [
+        {
+          id: "MM-LEGACY",
+          latestPrice: 5.2,
+          latestPurchaseDate: "2026-06-30",
+          packSize: "unit",
+          productName: "Legacy Orange Juice",
+          purchaseCount: 2,
+          supplierCode: "MM",
+          supplierName: "Mark Murphy",
+          supplierProductCode: "L-100"
+        }
+      ],
+      orderingInventory: () => orderingTask3InventorySnapshot
+    });
+    const baseUrl = await startServer(server);
+
+    const update = await requestJson(
+      `${baseUrl}/api/ordering/batches/${encodeURIComponent(batch.id)}/items/${encodeURIComponent(legacyItemId)}`,
+      {
+        body: JSON.stringify({ orderQuantity: 12 }),
+        headers: { "Content-Type": "application/json" },
+        method: "PUT"
+      }
+    );
+
+    expect(update.response.status).toBe(200);
+    expect(update.payload).toMatchObject({
+      batch: expect.objectContaining({
+        items: [expect.objectContaining({ id: legacyItemId, orderQuantity: 12, orderUnit: "unit" })]
+      })
+    });
+    expect(
+      database
+        .prepare("SELECT order_quantity AS orderQuantity, order_unit AS orderUnit FROM purchase_batch_items WHERE id = ?")
+        .get(legacyItemId)
+    ).toMatchObject({ orderQuantity: 12, orderUnit: "unit" });
+  });
+
   it("keeps intake and batch unchanged when matched rehydrate fails during intake import", async () => {
     const database = createPurchasingDatabase(":memory:");
     createReadyIntake(database, { supplierName: "Brakes" });

@@ -65,6 +65,8 @@ export function OrderingPage() {
   const [manualSearchSeed, setManualSearchSeed] = useState("");
   const [stockTarget, setStockTarget] = useState<{ itemId: string; productName: string; supplierProductId: string; locations: NonNullable<PurchaseBatch["items"][number]["locations"]> } | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
+  const quantityDrafts = useRef(new Map<string, number | null>());
+  const pendingQuantityUpdates = useRef(new Map<string, Promise<PurchaseBatch>>());
 
   useEffect(() => {
     if (error) {
@@ -122,6 +124,16 @@ export function OrderingPage() {
     setManualQuantity(1);
   }
 
+  function saveItemQuantity(itemId: string, quantity: number) {
+    if (!batch) return Promise.resolve(batch);
+    const request = updateOrderingItem(batch.id, itemId, { orderQuantity: quantity });
+    pendingQuantityUpdates.current.set(itemId, request);
+    void request.then(setBatch).catch(() => undefined).finally(() => {
+      if (pendingQuantityUpdates.current.get(itemId) === request) pendingQuantityUpdates.current.delete(itemId);
+    });
+    return request;
+  }
+
   async function prepare(code: "CMP" | "MM" | "BRK") {
     if (!batch) return;
     setError(null);
@@ -132,9 +144,16 @@ export function OrderingPage() {
         return;
       }
       setPoSaving(true);
+      await Promise.all(batch.items
+        .filter((item) => item.supplierGroup === code)
+        .map((item) => pendingQuantityUpdates.current.get(item.id))
+        .filter((request): request is Promise<PurchaseBatch> => request !== undefined));
       let currentBatch = await saveBatchPo(batch.id, batch.poNumber);
-      for (const item of batch.items.filter((entry) => entry.supplierGroup === code && entry.orderQuantity != null && Number.isFinite(entry.orderQuantity) && entry.orderQuantity > 0)) {
-        currentBatch = await updateOrderingItem(currentBatch.id, item.id, { orderQuantity: item.orderQuantity as number });
+      for (const item of batch.items.filter((entry) => entry.supplierGroup === code)) {
+        const quantity = quantityDrafts.current.get(item.id) ?? item.orderQuantity;
+        if (quantity != null && Number.isFinite(quantity) && quantity > 0) {
+          currentBatch = await updateOrderingItem(currentBatch.id, item.id, { orderQuantity: quantity });
+        }
       }
       setBatch(currentBatch);
       const result = await prepareSupplierGroup(currentBatch.id, code);
@@ -274,7 +293,7 @@ export function OrderingPage() {
                     <article className="ordering-item" key={item.id}>
                       <div className="ordering-item-name"><strong>{item.productName}</strong><span>{item.supplierName || "待匹配供应商"}{item.supplierProductCode ? ` · ${item.supplierProductCode}` : ""}</span></div>
                       <div><small>包装</small><span>{item.packSize || item.orderUnit}</span></div>
-                      <label><span>订购数量</span><input aria-label={`订购数量 ${item.productName}`} min="0.01" onBlur={(event) => { if (event.target.value.trim()) void updateOrderingItem(batch.id, item.id, { orderQuantity: Number(event.target.value) }).then(setBatch); }} onChange={(event) => setBatch({ ...batch, items: batch.items.map((entry) => entry.id === item.id ? { ...entry, orderQuantity: event.target.value === "" ? null : Number(event.target.value) } : entry) })} step="any" type="number" value={item.orderQuantity ?? ""} /></label>
+                      <label><span>订购数量</span><input aria-label={`订购数量 ${item.productName}`} min="0.01" onBlur={(event) => { if (event.target.value.trim()) void saveItemQuantity(item.id, Number(event.target.value)).catch((nextError) => setError(nextError instanceof Error ? nextError.message : "订购数量保存失败。 ")); }} onChange={(event) => { const value = event.target.value === "" ? null : Number(event.target.value); quantityDrafts.current.set(item.id, value); setBatch({ ...batch, items: batch.items.map((entry) => entry.id === item.id ? { ...entry, orderQuantity: value } : entry) }); }} step="any" type="number" value={item.orderQuantity ?? ""} /></label>
                       <div><small>参考价格</small><span>{item.lastPrice == null ? "-" : money.format(item.lastPrice)}</span></div>
                       <div><small>当前库存</small><span>{item.totalEquivalentQuantity ?? 0}</span></div>
                       {item.supplierProductId && item.locations && item.locations.length > 0 && <button aria-label={`查看库存 ${item.productName}`} className="ordering-stock-button" onClick={() => setStockTarget({ itemId: item.id, locations: item.locations!, productName: item.productName, supplierProductId: item.supplierProductId! })} type="button">查看库存</button>}

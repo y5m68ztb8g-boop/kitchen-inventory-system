@@ -424,6 +424,7 @@ export function updateBatchItem(database: Database.Database, input: UpdateBatchI
     }
 
     const next = { ...existing, ...definedFields(input) };
+    next.orderUnit = next.orderUnit.trim() || "unit";
     validateOrderItem(next);
     database
       .prepare(

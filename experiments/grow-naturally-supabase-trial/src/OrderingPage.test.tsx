@@ -477,7 +477,7 @@ describe("OrderingPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(failMessage);
   });
 
-  it("sends the latest blurred Mark Murphy quantity when preparing its email", async () => {
+  it("uses the latest Mark Murphy quantity when prepare is clicked before blur save settles", async () => {
     const user = userEvent.setup();
     const markMurphyItemId = "item-mm-task-7";
     const draft = {
@@ -488,10 +488,19 @@ describe("OrderingPage", () => {
     };
 
     getCurrentOrderingBatch.mockResolvedValue({ batch: task7Batch, readyIntakes: [] });
+    let resolveUpdate: (value: unknown) => void = () => {};
+    const updatedBatch = {
+      ...task7Batch,
+      items: task7Batch.items.map((item) => item.id === markMurphyItemId ? { ...item, orderQuantity: 12 } : item)
+    };
+    const updateOrderingItemDeferred = new Promise((resolve) => {
+      resolveUpdate = resolve;
+    });
     updateOrderingItem.mockResolvedValue({
       ...task7Batch,
       items: task7Batch.items.map((item) => item.id === markMurphyItemId ? { ...item, orderQuantity: 12 } : item)
     });
+    updateOrderingItem.mockImplementationOnce(() => updateOrderingItemDeferred);
     prepareSupplierGroup.mockResolvedValue({
       kind: "email-draft",
       draft
@@ -502,11 +511,17 @@ describe("OrderingPage", () => {
     const quantityInput = await screen.findByRole("spinbutton", { name: /Mark Murphy Milk/ });
     await user.clear(quantityInput);
     await user.type(quantityInput, "12");
-    await user.tab();
     await user.click(await screen.findByRole("button", { name: "准备 Mark Murphy 邮件" }));
 
-    expect(updateOrderingItem).toHaveBeenCalledWith(task7Batch.id, markMurphyItemId, { orderQuantity: 12 });
+    await Promise.resolve();
+    expect(prepareSupplierGroup).toHaveBeenCalledTimes(0);
+
+    resolveUpdate(updatedBatch);
     expect(await screen.findByRole("dialog", { name: "Mark Murphy 邮件草稿" })).toBeInTheDocument();
+
+    expect(updateOrderingItem).toHaveBeenCalledTimes(2);
+    expect(updateOrderingItem).toHaveBeenNthCalledWith(1, task7Batch.id, markMurphyItemId, { orderQuantity: 12 });
+    expect(updateOrderingItem).toHaveBeenNthCalledWith(2, task7Batch.id, markMurphyItemId, { orderQuantity: 12 });
     expect(prepareSupplierGroup).toHaveBeenCalledWith(task7Batch.id, "MM");
   });
 
