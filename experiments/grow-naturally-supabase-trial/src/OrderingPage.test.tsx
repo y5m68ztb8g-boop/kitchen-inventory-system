@@ -474,7 +474,40 @@ describe("OrderingPage", () => {
     render(<OrderingPage />);
 
     await user.click(await screen.findByRole("button", { name: "导入 invoice.csv（2 项）" }));
-    expect(await screen.findByRole("status")).toHaveTextContent(failMessage);
+    expect(await screen.findByRole("alert")).toHaveTextContent(failMessage);
+  });
+
+  it("sends the latest blurred Mark Murphy quantity when preparing its email", async () => {
+    const user = userEvent.setup();
+    const markMurphyItemId = "item-mm-task-7";
+    const draft = {
+      supplierCode: "MM" as const,
+      to: "orders@markmurphy.example",
+      subject: "Purchase order PO-5005",
+      body: "Please prepare our Mark Murphy order."
+    };
+
+    getCurrentOrderingBatch.mockResolvedValue({ batch: task7Batch, readyIntakes: [] });
+    updateOrderingItem.mockResolvedValue({
+      ...task7Batch,
+      items: task7Batch.items.map((item) => item.id === markMurphyItemId ? { ...item, orderQuantity: 12 } : item)
+    });
+    prepareSupplierGroup.mockResolvedValue({
+      kind: "email-draft",
+      draft
+    });
+
+    render(<OrderingPage />);
+
+    const quantityInput = await screen.findByRole("spinbutton", { name: /Mark Murphy Milk/ });
+    await user.clear(quantityInput);
+    await user.type(quantityInput, "12");
+    await user.tab();
+    await user.click(await screen.findByRole("button", { name: "准备 Mark Murphy 邮件" }));
+
+    expect(updateOrderingItem).toHaveBeenCalledWith(task7Batch.id, markMurphyItemId, { orderQuantity: 12 });
+    expect(await screen.findByRole("dialog", { name: "Mark Murphy 邮件草稿" })).toBeInTheDocument();
+    expect(prepareSupplierGroup).toHaveBeenCalledWith(task7Batch.id, "MM");
   });
 
   it.each(["NoMatch", "SEA-B", "SEAB", "SEA B"])("shows a half-year no-history prompt for manual search and keeps direct-entry available", async (query) => {

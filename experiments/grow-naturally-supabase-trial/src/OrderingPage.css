@@ -68,6 +68,9 @@
   margin: 0 auto 18px;
   max-width: 1180px;
   padding: 20px;
+  position: sticky;
+  top: 10px;
+  z-index: 30;
 }
 .ordering-product-search > div { align-items: center; display: flex; gap: 12px; }
 .ordering-product-search label { display: grid; flex: 1; gap: 7px; }
@@ -151,6 +154,7 @@
 
 .ordering-dialog-backdrop { align-items: center; background: rgba(21, 27, 23, 0.42); display: flex; inset: 0; justify-content: center; padding: 18px; position: fixed; z-index: 80; }
 .ordering-dialog { background: #fff; border: 1px solid #cbd4cd; border-radius: 8px; box-shadow: 0 24px 70px rgba(20, 30, 23, 0.22); max-height: calc(100vh - 36px); overflow: auto; padding: 22px; width: min(680px, 100%); }
+.ordering-po-dialog { width: min(440px, 100%); }
 .ordering-dialog header { margin-bottom: 18px; }
 .ordering-dialog header h2 { font-size: 22px; letter-spacing: 0; margin: 0; }
 .ordering-dialog header p { margin-top: 0; }
