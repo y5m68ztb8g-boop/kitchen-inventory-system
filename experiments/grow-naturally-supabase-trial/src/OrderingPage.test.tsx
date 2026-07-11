@@ -10,12 +10,14 @@ const {
   deleteOrderingItem,
   getCurrentOrderingBatch,
   getOrderingProfile,
+  markSupplierOrdered,
   prepareSupplierGroup,
   recordInventoryRecheck,
   saveBatchPo,
   saveOrderingProfile,
   saveSupplierEmailDraft,
   searchHistoricalProducts,
+  runBrakesQuickAdd,
   updateOrderingItem
 } = vi.hoisted(() => ({
   acknowledgeRestockOnly: vi.fn(),
@@ -23,12 +25,14 @@ const {
   deleteOrderingItem: vi.fn(),
   getCurrentOrderingBatch: vi.fn(),
   getOrderingProfile: vi.fn(),
+  markSupplierOrdered: vi.fn(),
   prepareSupplierGroup: vi.fn(),
   recordInventoryRecheck: vi.fn(),
   saveBatchPo: vi.fn(),
   saveOrderingProfile: vi.fn(),
   saveSupplierEmailDraft: vi.fn(),
   searchHistoricalProducts: vi.fn(),
+  runBrakesQuickAdd: vi.fn(),
   updateOrderingItem: vi.fn()
 }));
 
@@ -38,11 +42,13 @@ vi.mock("./ordering/api", () => ({
   deleteOrderingItem,
   getCurrentOrderingBatch,
   getOrderingProfile,
+  markSupplierOrdered,
   prepareSupplierGroup,
   recordInventoryRecheck,
   saveBatchPo,
   saveOrderingProfile,
   saveSupplierEmailDraft,
+  runBrakesQuickAdd,
   updateOrderingItem
 }));
 
@@ -99,6 +105,55 @@ const brakesBatch = {
   ]
 };
 
+const task7Items = [
+  {
+    id: "item-cmp-task-7",
+    batchId: emptyBatch.id,
+    productName: "Campbells Tomatoes",
+    supplierGroup: "CMP",
+    supplierProductId: "CMP-TOMATO",
+    supplierProductCode: "CMP-01",
+    supplierName: "Campbells",
+    packSize: "6x2.5kg",
+    orderQuantity: 1,
+    orderUnit: "6x2.5kg",
+    lastPrice: 12,
+    purchaseCount: 4,
+    latestPurchaseDate: "2026-07-01",
+    brakesStatus: "Pending"
+  },
+  {
+    id: "item-mm-task-7",
+    batchId: emptyBatch.id,
+    productName: "Mark Murphy Milk",
+    supplierGroup: "MM",
+    supplierProductId: "MM-MILK",
+    supplierProductCode: "MM-02",
+    supplierName: "Mark Murphy",
+    packSize: "12x1ltr",
+    orderQuantity: 1,
+    orderUnit: "12x1ltr",
+    lastPrice: 11,
+    purchaseCount: 3,
+    latestPurchaseDate: "2026-07-01",
+    brakesStatus: "Pending"
+  },
+  { ...brakesBatch.items[0], brakesStatus: "Pending" }
+];
+
+const task7Suppliers = [
+  { supplierCode: "CMP", status: "Prepared", preparedAt: "2026-07-11T10:00:00.000Z", orderedAt: null, emailDraft: { to: "cmp@example.com", subject: "PO", body: "Order" } },
+  { supplierCode: "MM", status: "Pending", preparedAt: null, orderedAt: null, emailDraft: null },
+  { supplierCode: "BRK", status: "Prepared", preparedAt: "2026-07-11T10:00:00.000Z", orderedAt: null, emailDraft: null }
+];
+
+const task7Batch = {
+  ...emptyBatch,
+  items: task7Items,
+  suppliers: task7Suppliers,
+  supplierGroups: task7Suppliers
+};
+
 describe("OrderingPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -116,6 +171,8 @@ describe("OrderingPage", () => {
     recordInventoryRecheck.mockResolvedValue(emptyBatch);
     saveBatchPo.mockResolvedValue(emptyBatch);
     saveSupplierEmailDraft.mockResolvedValue(emptyBatch);
+    runBrakesQuickAdd.mockResolvedValue(task7Batch);
+    markSupplierOrdered.mockResolvedValue(task7Batch);
     saveOrderingProfile.mockResolvedValue({
       purchaserName: "Alex Buyer",
       hotelName: "Natural Growth Hotel",
@@ -213,5 +270,77 @@ describe("OrderingPage", () => {
     expect(within(dialog).getByRole("button", { name: "复制邮件内容" })).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: /发送邮件/ })).not.toBeInTheDocument();
     expect(within(dialog).queryByText(/发送邮件/)).not.toBeInTheDocument();
+  });
+
+  it("shows per-item Quick Add progress without ever claiming the order succeeded", async () => {
+    const user = userEvent.setup();
+    getCurrentOrderingBatch.mockResolvedValue({ batch: task7Batch, readyIntakes: [] });
+    runBrakesQuickAdd.mockResolvedValue({
+      ...task7Batch,
+      items: task7Batch.items.map((item) => item.supplierGroup === "BRK" ? { ...item, brakesStatus: "Added" } : item)
+    });
+    render(<OrderingPage />);
+
+    await user.click(await screen.findByRole("button", { name: "填入 Brakes 购物车" }));
+
+    expect(await screen.findByText("已填入购物车")).toBeInTheDocument();
+    expect(screen.queryByText("下单成功")).not.toBeInTheDocument();
+    expect(runBrakesQuickAdd).toHaveBeenCalledWith(task7Batch.id);
+  });
+
+  it("retries Quick Add without repeating rows already marked Added", async () => {
+    const user = userEvent.setup();
+    const retryBatch = {
+      ...task7Batch,
+      items: [
+        ...task7Batch.items.filter((item) => item.supplierGroup !== "BRK"),
+        { ...task7Batch.items[2], brakesStatus: "Added" },
+        { ...task7Batch.items[2], id: "item-brakes-failed", productName: "Brakes Failed Item", supplierProductCode: "FAILED-2", brakesStatus: "Failed" }
+      ]
+    };
+    getCurrentOrderingBatch.mockResolvedValue({ batch: retryBatch, readyIntakes: [] });
+    runBrakesQuickAdd.mockResolvedValue({
+      ...retryBatch,
+      items: retryBatch.items.map((item) => item.id === "item-brakes-failed" ? { ...item, brakesStatus: "Added" } : item)
+    });
+    render(<OrderingPage />);
+
+    await user.click(await screen.findByRole("button", { name: "重试 Brakes Quick Add" }));
+
+    expect(runBrakesQuickAdd).toHaveBeenCalledTimes(1);
+    expect(runBrakesQuickAdd).toHaveBeenCalledWith(retryBatch.id);
+    expect(screen.getAllByText("已填入购物车")).toHaveLength(2);
+  });
+
+  it("allows mark ordered only for Prepared suppliers and requires yes/no confirmation", async () => {
+    const user = userEvent.setup();
+    getCurrentOrderingBatch.mockResolvedValue({ batch: task7Batch, readyIntakes: [] });
+    const partiallyOrdered = {
+      ...task7Batch,
+      status: "PartiallyOrdered",
+      suppliers: task7Batch.suppliers.map((supplier) => supplier.supplierCode === "CMP" ? { ...supplier, status: "Ordered", orderedAt: "2026-07-11T11:00:00.000Z" } : supplier),
+      supplierGroups: task7Batch.supplierGroups.map((supplier) => supplier.supplierCode === "CMP" ? { ...supplier, status: "Ordered", orderedAt: "2026-07-11T11:00:00.000Z" } : supplier)
+    };
+    markSupplierOrdered.mockResolvedValue(partiallyOrdered);
+    render(<OrderingPage />);
+
+    expect(await screen.findByRole("button", { name: /Campbells.*标记为已下单/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Brakes.*标记为已下单/ })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /Mark Murphy.*标记为已下单/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Campbells.*标记为已下单/ }));
+    let dialog = screen.getByRole("dialog", { name: "确认已下单" });
+    expect(within(dialog).getByRole("button", { name: "是" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "否" })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "否" }));
+    expect(markSupplierOrdered).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: /Campbells.*标记为已下单/ }));
+    dialog = screen.getByRole("dialog", { name: "确认已下单" });
+    await user.click(within(dialog).getByRole("button", { name: "是" }));
+
+    expect(markSupplierOrdered).toHaveBeenCalledWith(task7Batch.id, "CMP");
+    expect(await screen.findByText("部分已下单")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Brakes.*标记为已下单/ })).toBeEnabled();
   });
 });

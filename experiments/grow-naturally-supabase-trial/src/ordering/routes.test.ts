@@ -10,7 +10,9 @@ import {
   getOrCreateDraftBatch,
   getBatchDetail,
   addBatchItem,
+  saveBrakesQuickAddResults,
   saveBatchPo,
+  saveSupplierEmailDraft,
   type OrderingProfile
 } from "../../server/ordering/database";
 import { orderingTask3Candidates, orderingTask3InventorySnapshot } from "./fixtures/task-3-ordering-api-fixtures";
@@ -784,5 +786,87 @@ describe("ordering routes", () => {
     expect(invalidQuantity.response.status).toBe(400);
     expect(invalidQuantity.payload).toMatchObject({ error: { code: "INVALID_ORDER_QUANTITY" } });
     expect(fill).not.toHaveBeenCalled();
+  });
+
+  it("allows only Prepared CMP, MM, and BRK groups to be marked ordered and keeps groups independent", async () => {
+    const database = createPurchasingDatabase(":memory:");
+    const batchId = getOrCreateDraftBatch(database).id;
+    const common = {
+      batchId,
+      supplierProductId: null,
+      packSize: "case",
+      orderQuantity: 1,
+      orderUnit: "case",
+      lastPrice: null,
+      purchaseCount: null,
+      latestPurchaseDate: null
+    };
+    addBatchItem(database, { ...common, productName: "CMP item", supplierGroup: "CMP", supplierProductCode: "CMP-1", supplierName: "Campbells" });
+    addBatchItem(database, { ...common, productName: "MM item", supplierGroup: "MM", supplierProductCode: "MM-1", supplierName: "Mark Murphy" });
+    const brakes = addBatchItem(database, { ...common, productName: "BRK item", supplierGroup: "BRK", supplierProductCode: "BRK-1", supplierName: "Brakes" });
+    const server = await createTestServer({
+      database,
+      historicalCandidates: () => orderingTask3Candidates,
+      orderingInventory: () => new Map()
+    });
+    const baseUrl = await startServer(server);
+    const markUrl = (supplier: "CMP" | "MM" | "BRK") => `${baseUrl}/api/ordering/batches/${batchId}/suppliers/${supplier}/mark-ordered`;
+
+    const pending = await requestJson(markUrl("CMP"), { method: "POST" });
+    expect(pending.response.status).toBe(409);
+    expect(pending.payload).toMatchObject({ error: { code: "SUPPLIER_NOT_PREPARED" } });
+
+    saveSupplierEmailDraft(database, { batchId, supplierCode: "CMP", draft: { to: "cmp@example.com", subject: "PO", body: "CMP order" } });
+    saveSupplierEmailDraft(database, { batchId, supplierCode: "MM", draft: { to: "mm@example.com", subject: "PO", body: "MM order" } });
+    saveBrakesQuickAddResults(database, { batchId, results: [{ itemId: brakes.items.find((item) => item.supplierGroup === "BRK")!.id, status: "Added", message: null }] });
+
+    const cmp = await requestJson(markUrl("CMP"), { method: "POST" });
+    expect(cmp.response.status).toBe(200);
+    expect(cmp.payload?.batch).toMatchObject({ status: "PartiallyOrdered" });
+    expect(getBatchDetail(database, batchId).suppliers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ supplierCode: "CMP", status: "Ordered" }),
+      expect.objectContaining({ supplierCode: "MM", status: "Prepared", orderedAt: null }),
+      expect.objectContaining({ supplierCode: "BRK", status: "Prepared", orderedAt: null })
+    ]));
+
+    expect((await requestJson(markUrl("MM"), { method: "POST" })).response.status).toBe(200);
+    expect((await requestJson(markUrl("BRK"), { method: "POST" })).response.status).toBe(200);
+    expect(getBatchDetail(database, batchId)).toMatchObject({ status: "Ordered" });
+  });
+
+  it("mark ordered does not change the ordering inventory snapshot", async () => {
+    const database = createPurchasingDatabase(":memory:");
+    const batchId = getOrCreateDraftBatch(database).id;
+    addBatchItem(database, {
+      batchId,
+      productName: "CMP stock item",
+      supplierGroup: "CMP",
+      supplierProductId: "CMP-STOCK-1",
+      supplierProductCode: "CMP-STOCK-1",
+      supplierName: "Campbells",
+      packSize: "case",
+      orderQuantity: 1,
+      orderUnit: "case",
+      lastPrice: null,
+      purchaseCount: null,
+      latestPurchaseDate: null
+    });
+    saveSupplierEmailDraft(database, { batchId, supplierCode: "CMP", draft: { to: "cmp@example.com", subject: "PO", body: "CMP order" } });
+    const inventory = new Map([
+      ["CMP-STOCK-1", { supplierProductId: "CMP-STOCK-1", totalEquivalentQuantity: 7.5, locations: [{ warehouse: "dry-store", locationCode: "A1", equivalentQuantity: 7.5 }] }]
+    ]);
+    const before = structuredClone([...inventory.entries()]);
+    const server = await createTestServer({
+      database,
+      historicalCandidates: () => orderingTask3Candidates,
+      orderingInventory: () => inventory
+    });
+    const baseUrl = await startServer(server);
+
+    const result = await requestJson(`${baseUrl}/api/ordering/batches/${batchId}/suppliers/CMP/mark-ordered`, { method: "POST" });
+
+    expect(result.response.status).toBe(200);
+    expect([...inventory.entries()]).toEqual(before);
+    expect(getBatchDetail(database, batchId).items[0]).toMatchObject({ productName: "CMP stock item", orderQuantity: 1 });
   });
 });

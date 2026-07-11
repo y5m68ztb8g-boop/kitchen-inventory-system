@@ -27,6 +27,7 @@ export type PurchaseBatchItem = {
   purchaseCount: number | null;
   latestPurchaseDate: string | null;
   brakesStatus: BrakesItemStatus;
+  brakesMessage?: string | null;
   totalEquivalentQuantity?: number;
   locations?: OrderingInventoryLocation[];
 };

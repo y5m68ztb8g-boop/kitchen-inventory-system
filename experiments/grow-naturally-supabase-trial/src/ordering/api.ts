@@ -16,7 +16,8 @@ const chineseErrorMessages: Record<string, string> = {
   ORDER_BATCH_NOT_FOUND: "当前下单批次不存在。",
   ORDER_BATCH_ITEM_NOT_FOUND: "未找到该下单商品。",
   INTAKE_NOT_READY_FOR_ORDER: "该采购清单尚未准备好转入下单模块。",
-  INVALID_ORDERING_DATA: "下单数据无效，请检查后重试。"
+  INVALID_ORDERING_DATA: "下单数据无效，请检查后重试。",
+  SUPPLIER_NOT_PREPARED: "请先完成该供应商的下单准备。"
 };
 
 export function getCurrentOrderingBatch(): Promise<CurrentOrderingResponse> {
@@ -101,6 +102,25 @@ export async function saveSupplierEmailDraft(
   const response = await readOrderingResponse<{ batch: PurchaseBatch }>(
     `/api/ordering/batches/${encodeURIComponent(batchId)}/suppliers/${supplierCode}/email-draft`,
     jsonRequest("PUT", draft)
+  );
+  return response.batch;
+}
+
+export async function runBrakesQuickAdd(batchId: string): Promise<PurchaseBatch> {
+  const response = await readOrderingResponse<{ batch: PurchaseBatch }>(
+    `/api/ordering/batches/${encodeURIComponent(batchId)}/suppliers/BRK/quick-add`,
+    { method: "POST" }
+  );
+  return response.batch;
+}
+
+export async function markSupplierOrdered(
+  batchId: string,
+  supplierCode: "CMP" | "MM" | "BRK"
+): Promise<PurchaseBatch> {
+  const response = await readOrderingResponse<{ batch: PurchaseBatch }>(
+    `/api/ordering/batches/${encodeURIComponent(batchId)}/suppliers/${supplierCode}/mark-ordered`,
+    { method: "POST" }
   );
   return response.batch;
 }

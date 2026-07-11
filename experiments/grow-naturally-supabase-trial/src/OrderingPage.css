@@ -38,6 +38,14 @@
 .ordering-toolbar,
 .ordering-groups { margin-left: auto; margin-right: auto; max-width: 1180px; }
 .ordering-alert { background: #fff7df; border-left: 3px solid #d49a16; padding: 12px 14px; }
+.ordering-batch-status { color: #536158; margin: 0 auto 10px; max-width: 1180px; text-align: right; }
+.ordering-ordered-button { background: #245d35; border: 1px solid #245d35; border-radius: 6px; color: #fff; padding: 10px 14px; }
+.ordering-ordered-state { color: #245d35; font-weight: 600; }
+.ordering-brakes-status { font-size: 13px; font-weight: 600; }
+.ordering-brakes-added { color: #22613a; }
+.ordering-brakes-invalidcode,
+.ordering-brakes-failed { color: #a33127; }
+.ordering-brakes-awaitingconfirmation { color: #8a6518; }
 
 .ordering-toolbar {
   background: #fff;

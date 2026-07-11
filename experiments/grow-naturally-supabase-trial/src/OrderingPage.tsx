@@ -8,8 +8,10 @@ import {
   getCurrentOrderingBatch,
   getOrderingProfile,
   importReadyIntake,
+  markSupplierOrdered,
   prepareSupplierGroup,
   recordInventoryRecheck,
+  runBrakesQuickAdd,
   saveBatchPo,
   saveOrderingProfile,
   saveSupplierEmailDraft,
@@ -49,6 +51,8 @@ export function OrderingPage() {
   const [inventoryReview, setInventoryReview] = useState<{ supplier: "CMP" | "MM" | "BRK"; items: InventoryReviewItem[] } | null>(null);
   const [emailDraft, setEmailDraft] = useState<SupplierEmailDraft | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [confirmOrdered, setConfirmOrdered] = useState<{ code: "CMP" | "MM" | "BRK"; name: string } | null>(null);
+  const [quickAddRunning, setQuickAddRunning] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -116,6 +120,14 @@ export function OrderingPage() {
     setBatch(next);
   }
 
+  async function fillBrakesCart() {
+    if (quickAddRunning || !batch) return;
+    setQuickAddRunning(true);
+    try { setBatch(await runBrakesQuickAdd(batch.id)); }
+    catch (nextError) { setError(nextError instanceof Error ? nextError.message : "Brakes Quick Add 失败。 "); }
+    finally { setQuickAddRunning(false); }
+  }
+
   if (!batch) {
     return <main className="ordering-page"><p>{error ?? "正在加载下单清单..."}</p></main>;
   }
@@ -128,6 +140,7 @@ export function OrderingPage() {
       </header>
 
       {error && <p className="ordering-alert" role="status">{error}</p>}
+      <p className="ordering-batch-status">{batch.status === "Ordered" ? "全部已下单" : batch.status === "PartiallyOrdered" ? "部分已下单" : "草稿"}</p>
 
       <section className="ordering-toolbar" aria-label="下单基本信息">
         <label><span>采购 PO 号码</span><input aria-label="采购 PO 号码" onBlur={() => void saveBatchPo(batch.id, batch.poNumber).then(setBatch).catch((nextError) => setError(String(nextError)))} onChange={(event) => setBatch({ ...batch, poNumber: event.target.value })} placeholder="从前台系统取得后填写" value={batch.poNumber} /></label>
@@ -145,13 +158,18 @@ export function OrderingPage() {
         {groups.map((group) => {
           const items = itemsByGroup.get(group.code) ?? [];
           const open = openGroups.has(group.code);
+          const supplier = group.code === "UNMATCHED" ? null : batch.suppliers.find((entry) => entry.supplierCode === group.code);
+          const hasRetryableBrakes = group.code === "BRK" && items.some((item) => item.brakesStatus === "Failed" || item.brakesStatus === "InvalidCode" || item.brakesStatus === "AwaitingConfirmation");
           return (
             <section className={`ordering-group ordering-group-${group.code.toLowerCase()}`} key={group.code}>
               <header>
                 <button aria-expanded={open} aria-label={`${group.name} 分组`} className="ordering-group-toggle" onClick={() => toggleGroup(group.code)} type="button">
                   <span>{group.name}<small>{items.length} 项</small></span>{open ? <ChevronUp size={19} /> : <ChevronDown size={19} />}
                 </button>
-                {group.code !== "UNMATCHED" && <button className="ordering-prepare-button" onClick={() => void prepare(group.code as "CMP" | "MM" | "BRK")} type="button">{group.code === "BRK" ? "准备 Brakes Quick Add" : `准备 ${group.name} 邮件`}</button>}
+                {group.code !== "UNMATCHED" && group.code !== "BRK" && supplier?.status !== "Ordered" && <button className="ordering-prepare-button" onClick={() => void prepare(group.code as "CMP" | "MM")} type="button">{`准备 ${group.name} 邮件`}</button>}
+                {group.code === "BRK" && supplier?.status !== "Ordered" && <button className="ordering-prepare-button" disabled={quickAddRunning} onClick={() => void fillBrakesCart()} type="button">{quickAddRunning ? "正在填入..." : hasRetryableBrakes ? "重试 Brakes Quick Add" : "填入 Brakes 购物车"}</button>}
+                {supplier?.status === "Prepared" && <button aria-label={`${group.name} 标记为已下单`} className="ordering-ordered-button" onClick={() => setConfirmOrdered({ code: supplier.supplierCode, name: group.name })} type="button">标记为已下单</button>}
+                {supplier?.status === "Ordered" && <span className="ordering-ordered-state">已下单</span>}
               </header>
               {open && (
                 <div className="ordering-items">
@@ -163,6 +181,7 @@ export function OrderingPage() {
                       <label><span>订购数量</span><input aria-label={`订购数量 ${item.productName}`} min="0.01" onBlur={(event) => void updateOrderingItem(batch.id, item.id, { orderQuantity: Number(event.target.value) }).then(setBatch)} onChange={(event) => setBatch({ ...batch, items: batch.items.map((entry) => entry.id === item.id ? { ...entry, orderQuantity: Number(event.target.value) } : entry) })} step="any" type="number" value={item.orderQuantity} /></label>
                       <div><small>参考价格</small><span>{item.lastPrice == null ? "-" : money.format(item.lastPrice)}</span></div>
                       <div><small>当前库存</small><span>{item.totalEquivalentQuantity ?? 0}</span></div>
+                      {group.code === "BRK" && <span className={`ordering-brakes-status ordering-brakes-${item.brakesStatus.toLowerCase()}`}>{item.brakesStatus === "Added" ? "已填入购物车" : item.brakesStatus === "AwaitingConfirmation" ? "等待 Brakes 确认" : item.brakesStatus === "InvalidCode" ? "无效编码" : item.brakesStatus === "Failed" ? "填写失败" : "待填入"}</span>}
                       <button aria-label={`删除 ${item.productName}`} className="ordering-icon-button" onClick={() => void deleteOrderingItem(batch.id, item.id).then(setBatch)} title="删除" type="button"><Trash2 size={18} /></button>
                     </article>
                   ))}
@@ -193,6 +212,12 @@ export function OrderingPage() {
           <label><span>Campbells 邮箱</span><input onChange={(event) => setProfile({ ...profile, campbellsEmail: event.target.value })} type="email" value={profile.campbellsEmail} /></label>
           <label><span>Mark Murphy 邮箱</span><input onChange={(event) => setProfile({ ...profile, markMurphyEmail: event.target.value })} type="email" value={profile.markMurphyEmail} /></label>
           <button className="ordering-primary" onClick={() => void saveOrderingProfile(profile).then((saved) => { setProfile(saved); setSettingsOpen(false); })} type="button">保存设置</button>
+        </section></div>
+      )}
+      {confirmOrdered && (
+        <div className="ordering-dialog-backdrop"><section aria-label="确认已下单" aria-modal="true" className="ordering-dialog ordering-confirm-dialog" role="dialog">
+          <h2>确认已下单</h2><p>是否确认 {confirmOrdered.name} 的订单已在供应商系统中完成？</p>
+          <div className="ordering-dialog-actions"><button onClick={() => setConfirmOrdered(null)} type="button">否</button><button className="ordering-primary" onClick={() => void markSupplierOrdered(batch.id, confirmOrdered.code).then((saved) => { setBatch(saved); setConfirmOrdered(null); })} type="button">是</button></div>
         </section></div>
       )}
     </main>

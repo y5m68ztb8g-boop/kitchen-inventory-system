@@ -14,6 +14,7 @@ import {
   getOrderingProfile,
   getOrCreateDraftBatch,
   listReadyOrderingIntakes,
+  markSupplierOrdered,
   prepareSupplierGroup,
   recordInventoryRecheck,
   saveBatchPo,
@@ -96,6 +97,7 @@ const supplierEmailDraftSchema = z
 const orderingErrorCodes = new Set<PurchasingApiErrorCode>([
   "INVALID_ORDERING_DATA",
   "PO_REQUIRED",
+  "SUPPLIER_NOT_PREPARED",
   "INVALID_ORDER_QUANTITY",
   "SUPPLIER_PRODUCT_NOT_FOUND",
   "INTAKE_NOT_READY_FOR_ORDER",
@@ -184,6 +186,21 @@ export function installOrderingRoutes(server: OrderingMiddlewareServer, options:
           inventory: await orderingInventory()
         });
         sendJson(response, 200, result);
+        return;
+      }
+
+      const markOrderedMatch = url.pathname.match(
+        /^\/api\/ordering\/batches\/([^/]+)\/suppliers\/(CMP|MM|BRK)\/mark-ordered$/
+      );
+      if (markOrderedMatch) {
+        requireMethod(request, "POST");
+        const batchId = decodeURIComponent(markOrderedMatch[1]);
+        const supplierCode = markOrderedMatch[2] as "CMP" | "MM" | "BRK";
+        const batch = getBatchDetail(options.database, batchId);
+        const supplier = batch.suppliers.find((entry) => entry.supplierCode === supplierCode);
+        if (supplier?.status !== "Prepared") throw new PurchasingApiError("SUPPLIER_NOT_PREPARED");
+        const saved = markSupplierOrdered(options.database, { batchId, supplierCode });
+        sendJson(response, 200, { batch: await enrichBatch(saved, await orderingInventory()) });
         return;
       }
 
