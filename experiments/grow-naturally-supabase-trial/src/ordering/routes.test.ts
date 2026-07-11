@@ -183,14 +183,7 @@ describe("ordering routes", () => {
     const baseUrl = await startServer(server);
 
     const forgedInput = await requestJson(`${baseUrl}/api/ordering/batches/${encodeURIComponent(draftBatch)}/items`, {
-      body: JSON.stringify({
-        supplierProductId: "BRK-100243",
-        productName: "Hacked Product",
-        orderQuantity: 2,
-        orderUnit: "箱",
-        supplierName: "Injected Supplier",
-        supplierProductCode: "FAKE-999"
-      }),
+      body: JSON.stringify({ supplierProductId: "made-up", orderQuantity: 2 }),
       headers: { "Content-Type": "application/json" },
       method: "POST"
     });
@@ -365,4 +358,3 @@ describe("ordering routes", () => {
     );
   });
 });
-
