@@ -210,14 +210,75 @@ describe("ordering purchasing database", () => {
 
   it("shares one PO while supplier groups keep independent status", () => {
     const database = createPurchasingDatabase(":memory:");
-    saveBatchPo(database, "batch-1", "PO-7788");
+    const batch = getOrCreateDraftBatch(database, "2026-07-11T10:00:00.000Z");
+
+    database.exec(`
+      INSERT INTO purchase_batch_items (
+        id,
+        batch_id,
+        row_order,
+        product_name,
+        supplier_group,
+        supplier_product_id,
+        supplier_product_code,
+        supplier_name,
+        pack_size,
+        order_quantity,
+        order_unit,
+        brakes_status,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        '${batch.id}:item-1',
+        '${batch.id}',
+        0,
+        'Bread rolls',
+        'CMP',
+        'CMP-100',
+        'CMP-100',
+        'Campbells',
+        '12',
+        6,
+        'tray',
+        'Pending',
+        '2026-07-11T10:00:00.000Z',
+        '2026-07-11T10:00:00.000Z'
+      )
+      ON CONFLICT (id) DO NOTHING;
+
+      INSERT INTO purchase_batch_suppliers (
+        batch_id,
+        supplier_code,
+        status,
+        updated_at,
+        email_to,
+        email_subject,
+        email_body,
+        prepared_at,
+        ordered_at
+      )
+      VALUES
+        ('${batch.id}', 'CMP', 'Pending', '2026-07-11T10:00:00.000Z', 'a@a.io', 'PO', 'to=campbells', NULL, NULL),
+        ('${batch.id}', 'BRK', 'Pending', '2026-07-11T10:00:00.000Z', 'b@b.io', 'PO', 'to=brakes', NULL, NULL)
+      ON CONFLICT (batch_id, supplier_code) DO UPDATE SET
+        status = excluded.status,
+        updated_at = excluded.updated_at,
+        email_to = excluded.email_to,
+        email_subject = excluded.email_subject,
+        email_body = excluded.email_body,
+        prepared_at = excluded.prepared_at,
+        ordered_at = excluded.ordered_at;
+    `);
+
+    saveBatchPo(database, batch.id, "PO-7788");
     markSupplierOrdered(database, {
-      batchId: "batch-1",
+      batchId: batch.id,
       supplierCode: "CMP",
       orderedAt: "2026-07-11T11:00:00.000Z"
     });
 
-    expect(getBatchDetail(database, "batch-1")).toMatchObject({
+    expect(getBatchDetail(database, batch.id)).toMatchObject({
       poNumber: "PO-7788",
       status: "PartiallyOrdered"
     });
