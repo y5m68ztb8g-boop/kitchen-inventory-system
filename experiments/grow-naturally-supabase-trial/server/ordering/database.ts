@@ -518,7 +518,13 @@ function recomputeBatchStatus(database: Database.Database, batchId: string, upda
     .prepare(
       `SELECT supplier_code AS supplierCode, status
          FROM purchase_batch_suppliers
-        WHERE batch_id = ?`
+        WHERE batch_id = ?
+          AND EXISTS (
+            SELECT 1
+              FROM purchase_batch_items
+             WHERE purchase_batch_items.batch_id = purchase_batch_suppliers.batch_id
+               AND purchase_batch_items.supplier_group = purchase_batch_suppliers.supplier_code
+          )`
     )
     .all(batchId) as Array<{ supplierCode: SupplierCode; status: SupplierOrderStatus }>;
   const status: PurchaseBatchStatus =
