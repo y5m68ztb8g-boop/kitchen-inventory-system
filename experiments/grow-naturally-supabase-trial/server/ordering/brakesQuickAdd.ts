@@ -1,0 +1,88 @@
+import { chromium, type BrowserContext, type Page } from "playwright";
+import type { BrakesQuickAddInput, BrakesQuickAddResult, BrakesQuickAddRunner, PurchaseBatchItem } from "./types";
+
+export type BrakesQuickAddAdapter = {
+  openCart(): Promise<void>;
+  fillProductCode(code: string): Promise<void>;
+  fillQuantity(quantity: number): Promise<void>;
+  clickAdd(): Promise<void>;
+  readResult(productCode: string): Promise<"confirmed" | "invalid" | "ambiguous">;
+};
+
+export function createBrakesQuickAddRunner(input: {
+  adapter?: BrakesQuickAddAdapter;
+  profilePath?: string;
+}): BrakesQuickAddRunner {
+  let adapterPromise: Promise<BrakesQuickAddAdapter> | null = null;
+  const getAdapter = () => {
+    if (input.adapter) return Promise.resolve(input.adapter);
+    adapterPromise ??= createPlaywrightAdapter(input.profilePath || "local-data/brakes-chrome-profile");
+    return adapterPromise;
+  };
+
+  return {
+    async fill(items) {
+      const adapter = await getAdapter();
+      await adapter.openCart();
+      const results: BrakesQuickAddResult[] = [];
+      for (const item of items) {
+        try {
+          await adapter.fillProductCode(item.productCode);
+          await adapter.fillQuantity(item.quantity);
+          await adapter.clickAdd();
+          const outcome = await adapter.readResult(item.productCode);
+          results.push({
+            itemId: item.itemId,
+            status: outcome === "confirmed" ? "Added" : outcome === "invalid" ? "InvalidCode" : "AwaitingConfirmation",
+            message: outcome === "invalid" ? "Brakes 明确返回产品编码无效。" : null
+          });
+        } catch (error) {
+          results.push({ itemId: item.itemId, status: "Failed", message: error instanceof Error ? error.message : "Brakes Quick Add 填写失败。" });
+        }
+      }
+      return results;
+    }
+  };
+}
+
+export function buildRetryQueue(
+  items: Array<BrakesQuickAddInput & Pick<PurchaseBatchItem, "brakesStatus">>
+): BrakesQuickAddInput[] {
+  return items.filter((item) => item.brakesStatus !== "Added").map(({ itemId, productCode, quantity }) => ({ itemId, productCode, quantity }));
+}
+
+async function createPlaywrightAdapter(profilePath: string): Promise<BrakesQuickAddAdapter> {
+  const context = await chromium.launchPersistentContext(profilePath, { channel: "chrome", headless: false });
+  const pages = context.pages();
+  const page = pages[0] || (await context.newPage());
+  return pageAdapter(page, context);
+}
+
+function pageAdapter(page: Page, _context: BrowserContext): BrakesQuickAddAdapter {
+  const codeInput = () => page.locator('input[name*="productCode"], input[aria-label*="Product code" i]').first();
+  const quantityInput = () => page.locator('input[name*="quantity"], input[aria-label*="Quantity" i]').first();
+  return {
+    async openCart() { await page.goto("https://www.brake.co.uk/cart", { waitUntil: "domcontentloaded" }); },
+    async fillProductCode(code) {
+      const input = codeInput();
+      if (!(await input.isVisible())) throw new Error("Brakes Quick Add 页面已变化。");
+      await input.fill(code);
+    },
+    async fillQuantity(quantity) {
+      const input = quantityInput();
+      if (!(await input.isVisible())) throw new Error("Brakes Quick Add 页面已变化。");
+      await input.fill(String(quantity));
+    },
+    async clickAdd() {
+      const button = page.getByRole("button", { name: /quick add|add/i }).first();
+      if (!(await button.isVisible())) throw new Error("Brakes Quick Add 页面已变化。");
+      await button.click();
+    },
+    async readResult(productCode) {
+      const invalid = page.getByText(/invalid|not found|not recognised/i).first();
+      if (await invalid.isVisible().catch(() => false)) return "invalid";
+      const confirmed = page.getByText(productCode, { exact: false }).first();
+      return (await confirmed.isVisible().catch(() => false)) ? "confirmed" : "ambiguous";
+    }
+  };
+}

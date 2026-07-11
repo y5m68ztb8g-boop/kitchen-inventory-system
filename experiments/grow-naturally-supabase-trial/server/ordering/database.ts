@@ -170,7 +170,8 @@ export function getBatchDetail(database: Database.Database, batchId: string): Pu
               last_price AS lastPrice,
               purchase_count AS purchaseCount,
               latest_purchase_date AS latestPurchaseDate,
-              brakes_status AS brakesStatus
+              brakes_status AS brakesStatus,
+              brakes_message AS brakesMessage
          FROM purchase_batch_items
         WHERE batch_id = ?
         ORDER BY row_order ASC, id ASC`
@@ -619,6 +620,34 @@ export function saveSupplierEmailDraft(
     )
     .run(input.draft.to, input.draft.subject, input.draft.body, preparedAt, preparedAt, input.batchId, input.supplierCode);
   touchBatch(database, input.batchId, preparedAt);
+  return getBatchDetail(database, input.batchId);
+}
+
+export function saveBrakesQuickAddResults(
+  database: Database.Database,
+  input: { batchId: string; results: Array<{ itemId: string; status: BrakesItemStatus; message: string | null }>; preparedAt?: string }
+): PurchaseBatch {
+  const preparedAt = input.preparedAt ?? new Date().toISOString();
+  database.transaction(() => {
+    requireBatch(database, input.batchId);
+    const update = database.prepare(
+      `UPDATE purchase_batch_items SET brakes_status = ?, brakes_message = ?, updated_at = ?
+        WHERE id = ? AND batch_id = ? AND supplier_group = 'BRK'`
+    );
+    for (const result of input.results) {
+      if (update.run(result.status, result.message, preparedAt, result.itemId, input.batchId).changes === 0) {
+        throw new OrderingDatabaseError("ORDER_BATCH_ITEM_NOT_FOUND");
+      }
+    }
+    if (input.results.some((result) => result.status === "Added" || result.status === "AwaitingConfirmation")) {
+      ensureSupplierRow(database, input.batchId, "BRK", preparedAt);
+      database.prepare(
+        `UPDATE purchase_batch_suppliers SET status = 'Prepared', prepared_at = ?, updated_at = ?
+          WHERE batch_id = ? AND supplier_code = 'BRK'`
+      ).run(preparedAt, preparedAt, input.batchId);
+    }
+    touchBatch(database, input.batchId, preparedAt);
+  })();
   return getBatchDetail(database, input.batchId);
 }
 

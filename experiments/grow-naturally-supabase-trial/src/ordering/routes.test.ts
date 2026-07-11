@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import Database from "better-sqlite3";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer, type Server } from "node:http";
 
@@ -10,6 +10,7 @@ import {
   getOrCreateDraftBatch,
   getBatchDetail,
   addBatchItem,
+  saveBatchPo,
   type OrderingProfile
 } from "../../server/ordering/database";
 import { orderingTask3Candidates, orderingTask3InventorySnapshot } from "./fixtures/task-3-ordering-api-fixtures";
@@ -22,6 +23,15 @@ type OrderingRouteOptions = {
   database: Database.Database;
   historicalCandidates?: () => Promise<unknown> | unknown;
   orderingInventory?: () => Promise<Map<string, unknown>> | Map<string, unknown>;
+  brakesQuickAddRunner?: {
+    fill: (items: Array<{ itemId: string; productCode: string; quantity: number }>) => Promise<
+      Array<{
+        itemId: string;
+        status: "Added" | "AwaitingConfirmation" | "InvalidCode" | "Failed";
+        message: string | null;
+      }>
+    >;
+  };
 };
 
 type InstallOrderingRoutes = (server: OrderingMiddlewareServer, options: OrderingRouteOptions) => void;
@@ -637,5 +647,142 @@ describe("ordering routes", () => {
         expect.objectContaining({ warehouse: "dry-store", equivalentQuantity: 2 })
       ])
     );
+  });
+
+  it("runs Brakes Quick Add only after an explicit POST, saves every result, and never marks the supplier ordered", async () => {
+    const database = createPurchasingDatabase(":memory:");
+    const batchId = getOrCreateDraftBatch(database).id;
+    saveBatchPo(database, batchId, "PO-TASK-6");
+    const first = addBatchItem(database, {
+      batchId,
+      productName: "Bread Roll",
+      supplierGroup: "BRK",
+      supplierProductId: "BRK-100243",
+      supplierProductCode: "100243",
+      supplierName: "Brakes",
+      packSize: "8x6",
+      orderQuantity: 2,
+      orderUnit: "8x6",
+      lastPrice: 12.5,
+      purchaseCount: 5,
+      latestPurchaseDate: "2026-06-30"
+    });
+    const itemId = first.items[0].id;
+    const fill = vi.fn().mockResolvedValue([
+      { itemId, status: "Added", message: null }
+    ]);
+    const server = await createTestServer({
+      database,
+      brakesQuickAddRunner: { fill },
+      historicalCandidates: () => orderingTask3Candidates,
+      orderingInventory: () => new Map([
+        ["BRK-100243", { supplierProductId: "BRK-100243", totalEquivalentQuantity: 1, locations: [] }]
+      ])
+    });
+    const baseUrl = await startServer(server);
+    const route = `${baseUrl}/api/ordering/batches/${batchId}/suppliers/BRK/quick-add`;
+
+    expect(fill).not.toHaveBeenCalled();
+    const getResponse = await requestJson(route);
+    expect(getResponse.response.status).toBe(405);
+    expect(fill).not.toHaveBeenCalled();
+
+    const quickAdd = await requestJson(route, { method: "POST" });
+    expect(quickAdd.response.status).toBe(200);
+    expect(fill).toHaveBeenCalledTimes(1);
+    expect(fill).toHaveBeenCalledWith([{ itemId, productCode: "100243", quantity: 2 }]);
+    const saved = getBatchDetail(database, batchId);
+    expect(saved.items[0]).toMatchObject({ id: itemId, brakesStatus: "Added" });
+    expect(saved.suppliers.find((supplier) => supplier.supplierCode === "BRK")).toMatchObject({
+      status: "Prepared",
+      orderedAt: null
+    });
+    expect(saved.status).toBe("Draft");
+  });
+
+  it("blocks Quick Add on high stock before invoking the fake runner", async () => {
+    const database = createPurchasingDatabase(":memory:");
+    const batchId = getOrCreateDraftBatch(database).id;
+    saveBatchPo(database, batchId, "PO-TASK-6");
+    addBatchItem(database, {
+      batchId,
+      productName: "Bread Roll",
+      supplierGroup: "BRK",
+      supplierProductId: "BRK-100243",
+      supplierProductCode: "100243",
+      supplierName: "Brakes",
+      packSize: "8x6",
+      orderQuantity: 2,
+      orderUnit: "8x6",
+      lastPrice: 12.5,
+      purchaseCount: 5,
+      latestPurchaseDate: "2026-06-30"
+    });
+    const fill = vi.fn();
+    const server = await createTestServer({
+      database,
+      brakesQuickAddRunner: { fill },
+      historicalCandidates: () => orderingTask3Candidates,
+      orderingInventory: () => orderingTask3InventorySnapshot
+    });
+    const baseUrl = await startServer(server);
+
+    const result = await requestJson(`${baseUrl}/api/ordering/batches/${batchId}/suppliers/BRK/quick-add`, { method: "POST" });
+
+    expect(result.response.status).toBe(409);
+    expect(result.payload).toMatchObject({
+      kind: "inventory-review-required",
+      items: expect.arrayContaining([expect.objectContaining({ itemId: expect.any(String) })])
+    });
+    expect(fill).not.toHaveBeenCalled();
+  });
+
+  it("rejects Quick Add without PO, product code, or positive quantity and never invokes the runner", async () => {
+    const database = createPurchasingDatabase(":memory:");
+    const batchId = getOrCreateDraftBatch(database).id;
+    const added = addBatchItem(database, {
+      batchId,
+      productName: "Manual Brakes item",
+      supplierGroup: "BRK",
+      supplierProductId: null,
+      supplierProductCode: null,
+      supplierName: "Brakes",
+      packSize: null,
+      orderQuantity: 1,
+      orderUnit: "case",
+      lastPrice: null,
+      purchaseCount: null,
+      latestPurchaseDate: null
+    });
+    const itemId = added.items[0].id;
+    const fill = vi.fn();
+    const server = await createTestServer({
+      database,
+      brakesQuickAddRunner: { fill },
+      historicalCandidates: () => orderingTask3Candidates,
+      orderingInventory: () => new Map()
+    });
+    const baseUrl = await startServer(server);
+    const route = `${baseUrl}/api/ordering/batches/${batchId}/suppliers/BRK/quick-add`;
+
+    const missingPo = await requestJson(route, { method: "POST" });
+    expect(missingPo.response.status).toBe(400);
+    expect(missingPo.payload).toMatchObject({ error: { code: "PO_REQUIRED" } });
+
+    saveBatchPo(database, batchId, "PO-TASK-6");
+    const missingCode = await requestJson(route, { method: "POST" });
+    expect(missingCode.response.status).toBe(400);
+    expect(missingCode.payload).toMatchObject({ error: { code: "INVALID_ORDERING_DATA" } });
+
+    database.pragma("ignore_check_constraints = ON");
+    try {
+      database.prepare("UPDATE purchase_batch_items SET supplier_product_code = 'VALID', order_quantity = 0 WHERE id = ?").run(itemId);
+    } finally {
+      database.pragma("ignore_check_constraints = OFF");
+    }
+    const invalidQuantity = await requestJson(route, { method: "POST" });
+    expect(invalidQuantity.response.status).toBe(400);
+    expect(invalidQuantity.payload).toMatchObject({ error: { code: "INVALID_ORDER_QUANTITY" } });
+    expect(fill).not.toHaveBeenCalled();
   });
 });

@@ -11,6 +11,7 @@ import { recognisePurchasePdf, recogniseWhiteboard } from "./server/purchasing/o
 import { installPurchasingRoutes } from "./server/purchasing/routes";
 import { buildOrderingInventorySnapshot } from "./server/ordering/inventory";
 import { installOrderingRoutes } from "./server/ordering/routes";
+import { createBrakesQuickAddRunner } from "./server/ordering/brakesQuickAdd";
 
 const inventoryDatabasePath = resolve(
   process.cwd(),
@@ -185,6 +186,14 @@ async function writeCloudInventoryDatabase(config: SupabaseConfig, database: unk
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const isE2E = process.env.GROW_NATURALLY_E2E === "1" || env.GROW_NATURALLY_E2E === "1";
+  const fakeBrakesQuickAddRunner = {
+    async fill(items: Array<{ itemId: string }>) {
+      return items.map((item) => ({ itemId: item.itemId, status: "Added" as const, message: null }));
+    }
+  };
+  const realBrakesQuickAddRunner = createBrakesQuickAddRunner({
+    profilePath: env.GROW_NATURALLY_BRAKES_PROFILE_PATH || resolve("local-data", "brakes-chrome-profile")
+  });
   const supabaseConfig = isE2E ? null : getSupabaseConfig(env);
   const cloudSyncStatus: CloudSyncStatus = {
     error: null,
@@ -251,6 +260,7 @@ export default defineConfig(({ mode }) => {
             })
         });
         installOrderingRoutes(server, {
+          brakesQuickAddRunner: isE2E ? fakeBrakesQuickAddRunner : realBrakesQuickAddRunner,
           database: purchasingDatabase,
           historicalCandidates: async () =>
             (await server.ssrLoadModule("/src/generated/supplierCatalogue.ts")).SUPPLIER_CATALOGUE,

@@ -30,6 +30,7 @@ export type PurchaseBatchItem = {
   purchaseCount: number | null;
   latestPurchaseDate: string | null;
   brakesStatus: BrakesItemStatus;
+  brakesMessage?: string | null;
 };
 
 export type PurchaseBatchSupplier = {

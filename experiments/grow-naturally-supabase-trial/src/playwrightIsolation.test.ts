@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import config from "../playwright.config";
 
@@ -13,5 +15,13 @@ describe("Playwright inventory isolation", () => {
     expect(webServer?.command).toContain("GROW_NATURALLY_PURCHASING_DB_PATH=");
     expect(webServer?.url).not.toBe("http://127.0.0.1:5174");
     expect(config.use?.baseURL).not.toBe("http://127.0.0.1:5174");
+  });
+
+  it("uses a fake Quick Add runner in E2E mode and cannot load the real Brakes runner", () => {
+    const viteSource = readFileSync(resolve(process.cwd(), "vite.config.ts"), "utf8");
+    const e2eConfiguration = viteSource.slice(viteSource.indexOf("const isE2E"));
+
+    expect(e2eConfiguration).toMatch(/brakesQuickAddRunner\s*:\s*isE2E\s*\?\s*(?:create)?fake/i);
+    expect(e2eConfiguration).not.toMatch(/isE2E\s*\?\s*createBrakesQuickAddRunner/i);
   });
 });

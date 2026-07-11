@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 .playwright/
+local-data/brakes-chrome-profile/
 playwright-report/
 test-results/
 *.tsbuildinfo

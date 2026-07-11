@@ -1,0 +1,93 @@
+// @vitest-environment node
+
+import { beforeEach, describe, expect, it } from "vitest";
+
+import {
+  createFakeBrakesAdapter,
+  task6BrakesQueue,
+  type FakeBrakesAdapter
+} from "./fixtures/task-6-brakes-quick-add-fixtures";
+
+type QuickAddItem = (typeof task6BrakesQueue)[number];
+type QuickAddResult = {
+  itemId: string;
+  status: "Added" | "AwaitingConfirmation" | "InvalidCode" | "Failed";
+  message: string | null;
+};
+type QuickAddRunner = { fill(items: QuickAddItem[]): Promise<QuickAddResult[]> };
+type QuickAddModule = {
+  createBrakesQuickAddRunner(input: { adapter: FakeBrakesAdapter }): QuickAddRunner;
+  buildRetryQueue(items: Array<QuickAddItem & { brakesStatus: "Pending" | QuickAddResult["status"] }>): QuickAddItem[];
+};
+
+async function loadQuickAddModule(): Promise<QuickAddModule> {
+  return import("../../server/ordering/brakesQuickAdd") as Promise<QuickAddModule>;
+}
+
+describe("Brakes Quick Add runner", () => {
+  let module: QuickAddModule;
+
+  beforeEach(async () => {
+    module = await loadQuickAddModule();
+  });
+
+  it("fills each product code and complete-pack quantity and marks Added only after explicit confirmation", async () => {
+    const adapter = createFakeBrakesAdapter({ "135177": "confirmed" });
+    const runner = module.createBrakesQuickAddRunner({ adapter });
+
+    const result = await runner.fill([task6BrakesQueue[0]]);
+
+    expect(result).toEqual([{ itemId: "brakes-confirmed", status: "Added", message: null }]);
+    expect(adapter.actions).toEqual([
+      "goto-cart",
+      "fill-code:135177",
+      "fill-quantity:2",
+      "click-add",
+      "read-result:135177"
+    ]);
+  });
+
+  it("uses InvalidCode only for an explicit invalid-code result", async () => {
+    const adapter = createFakeBrakesAdapter({ "BAD-404": "invalid" });
+    const result = await module.createBrakesQuickAddRunner({ adapter }).fill([task6BrakesQueue[1]]);
+
+    expect(result).toEqual([
+      expect.objectContaining({ itemId: "brakes-invalid", status: "InvalidCode" })
+    ]);
+  });
+
+  it("uses AwaitingConfirmation for ambiguous Quick Add results", async () => {
+    const adapter = createFakeBrakesAdapter({ "WAIT-101": "ambiguous" });
+    const result = await module.createBrakesQuickAddRunner({ adapter }).fill([task6BrakesQueue[2]]);
+
+    expect(result).toEqual([
+      expect.objectContaining({ itemId: "brakes-ambiguous", status: "AwaitingConfirmation" })
+    ]);
+  });
+
+  it("retries every unresolved row but excludes Added rows", () => {
+    const queue = module.buildRetryQueue([
+      { ...task6BrakesQueue[0], brakesStatus: "Added" },
+      { ...task6BrakesQueue[1], brakesStatus: "InvalidCode" },
+      { ...task6BrakesQueue[2], brakesStatus: "AwaitingConfirmation" },
+      { itemId: "pending", productCode: "PENDING", quantity: 1, brakesStatus: "Pending" },
+      { itemId: "failed", productCode: "FAILED", quantity: 1, brakesStatus: "Failed" }
+    ]);
+
+    expect(queue.map((item) => item.itemId)).toEqual([
+      "brakes-invalid",
+      "brakes-ambiguous",
+      "pending",
+      "failed"
+    ]);
+  });
+
+  it("has no checkout, delivery, price-confirmation, or place-order selector or action", async () => {
+    const adapter = createFakeBrakesAdapter({ "135177": "confirmed" });
+    await module.createBrakesQuickAddRunner({ adapter }).fill([task6BrakesQueue[0]]);
+
+    const forbidden = /checkout|delivery|confirm(?:-|\s)?price|price(?:-|\s)?confirmation|place(?:-|\s)?order|submit(?:-|\s)?order/i;
+    expect(adapter.actions.filter((action) => forbidden.test(action))).toEqual([]);
+    expect(adapter.selectors.filter((selector) => forbidden.test(selector))).toEqual([]);
+  });
+});

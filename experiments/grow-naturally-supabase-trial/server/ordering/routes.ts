@@ -17,6 +17,7 @@ import {
   prepareSupplierGroup,
   recordInventoryRecheck,
   saveBatchPo,
+  saveBrakesQuickAddResults,
   saveSupplierEmailDraft,
   saveOrderingProfile,
   updateBatchItem
@@ -43,6 +44,7 @@ export type OrderingRouteOptions = {
     | Map<string, OrderingInventorySnapshot>
     | Promise<Map<string, OrderingInventorySnapshot>>;
   quickAdd?: BrakesQuickAddRunner;
+  brakesQuickAddRunner?: BrakesQuickAddRunner;
 };
 
 const supplierGroupSchema = z.enum(["CMP", "MM", "BRK", "UNMATCHED"]);
@@ -105,6 +107,7 @@ const orderingErrorCodes = new Set<PurchasingApiErrorCode>([
 export function installOrderingRoutes(server: OrderingMiddlewareServer, options: OrderingRouteOptions): void {
   const historicalCandidates = options.historicalCandidates ?? (() => []);
   const orderingInventory = options.orderingInventory ?? (() => new Map());
+  const quickAdd = options.brakesQuickAddRunner ?? options.quickAdd;
 
   server.middlewares.use(async (request, response, next) => {
     const url = new URL(request.url || "/", "http://localhost");
@@ -197,6 +200,41 @@ export function installOrderingRoutes(server: OrderingMiddlewareServer, options:
           draft: parsed.data
         });
         sendJson(response, 200, { batch: await enrichBatch(batch, await orderingInventory()) });
+        return;
+      }
+
+      const quickAddMatch = url.pathname.match(
+        /^\/api\/ordering\/batches\/([^/]+)\/suppliers\/BRK\/quick-add$/
+      );
+      if (quickAddMatch) {
+        requireMethod(request, "POST");
+        const batchId = decodeURIComponent(quickAddMatch[1]);
+        const batch = getBatchDetail(options.database, batchId);
+        if (!batch.poNumber.trim()) throw new PurchasingApiError("PO_REQUIRED");
+        const brakesItems = batch.items.filter((item) => item.supplierGroup === "BRK");
+        if (brakesItems.some((item) => !item.supplierProductCode?.trim())) {
+          throw new PurchasingApiError("INVALID_ORDERING_DATA");
+        }
+        if (brakesItems.some((item) => !Number.isFinite(item.orderQuantity) || item.orderQuantity <= 0)) {
+          throw new PurchasingApiError("INVALID_ORDER_QUANTITY");
+        }
+        const prepared = prepareSupplierGroup(options.database, {
+          batchId,
+          supplierCode: "BRK",
+          inventory: await orderingInventory()
+        });
+        if (prepared.kind === "inventory-review-required") {
+          sendJson(response, 409, prepared);
+          return;
+        }
+        if (prepared.kind !== "brakes-ready" || !quickAdd) throw new PurchasingApiError("INVALID_ORDERING_DATA");
+        for (const item of prepared.items) {
+          if (!item.productCode.trim()) throw new PurchasingApiError("INVALID_ORDERING_DATA");
+          if (!Number.isFinite(item.quantity) || item.quantity <= 0) throw new PurchasingApiError("INVALID_ORDER_QUANTITY");
+        }
+        const results = await quickAdd.fill(prepared.items);
+        const saved = saveBrakesQuickAddResults(options.database, { batchId, results });
+        sendJson(response, 200, { batch: await enrichBatch(saved, await orderingInventory()), results });
         return;
       }
 
