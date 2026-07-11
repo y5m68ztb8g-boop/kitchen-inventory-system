@@ -200,12 +200,17 @@ describe("ordering purchasing database", () => {
 
     expect(getBatchDetail(migrated, batch.id).items).toHaveLength(1);
     expect(readIntakeStatus(migrated, "intake-1")).toBe("AddedToOrder");
-    expect(() =>
+    let duplicateError: unknown;
+    try {
       addReadyIntakeToBatch(migrated, {
         batchId: batch.id,
         intakeId: "intake-1"
-      })
-    ).toThrowErrorMatchingObject({ code: "INTAKE_ALREADY_ADDED" });
+      });
+    } catch (error) {
+      duplicateError = error;
+    }
+
+    expect(duplicateError).toMatchObject({ code: "INTAKE_ALREADY_ADDED" });
   });
 
   it("shares one PO while supplier groups keep independent status", () => {
