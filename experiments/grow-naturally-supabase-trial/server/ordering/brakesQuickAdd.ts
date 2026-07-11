@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import type { BrakesQuickAddInput, BrakesQuickAddResult, BrakesQuickAddRunner, PurchaseBatchItem } from "./types";
 
@@ -12,12 +13,16 @@ export type BrakesQuickAddAdapter = {
 export function createBrakesQuickAddRunner(input: {
   adapter?: BrakesQuickAddAdapter;
   adapterFactory?: () => Promise<BrakesQuickAddAdapter>;
+  cdpPort?: number;
   profilePath?: string;
 }): BrakesQuickAddRunner {
   let adapterPromise: Promise<BrakesQuickAddAdapter> | null = null;
   const getAdapter = async () => {
     if (input.adapter) return Promise.resolve(input.adapter);
-    adapterPromise ??= input.adapterFactory?.() ?? createPlaywrightAdapter(input.profilePath || "local-data/brakes-chrome-profile");
+    adapterPromise ??= input.adapterFactory?.() ?? createConnectedChromeAdapter(
+      input.profilePath || "local-data/brakes-chrome-profile-cdp",
+      input.cdpPort ?? 9333
+    );
     try {
       return await adapterPromise;
     } catch (error) {
@@ -79,19 +84,60 @@ export function buildRetryQueue(
   return items.filter((item) => item.brakesStatus !== "Added").map(({ itemId, productCode, quantity }) => ({ itemId, productCode, quantity }));
 }
 
-async function createPlaywrightAdapter(profilePath: string): Promise<BrakesQuickAddAdapter> {
-  const context = await chromium.launchPersistentContext(profilePath, brakesChromeLaunchOptions());
+async function createConnectedChromeAdapter(profilePath: string, cdpPort: number): Promise<BrakesQuickAddAdapter> {
+  const endpoint = `http://127.0.0.1:${cdpPort}`;
+  if (!(await isCdpAvailable(endpoint))) {
+    const launch = brakesChromeLaunchCommand(profilePath, cdpPort);
+    const child = spawn(launch.command, launch.args, {
+      detached: true,
+      stdio: "ignore"
+    });
+    child.unref();
+    await waitForCdp(endpoint);
+  }
+  const browser = await chromium.connectOverCDP(endpoint);
+  const context = browser.contexts()[0];
+  if (!context) throw new Error("Brakes 专用 Chrome 无法建立本机连接。");
   const pages = context.pages();
   const page = pages[0] || (await context.newPage());
   return pageAdapter(page, context);
 }
 
-export function brakesChromeLaunchOptions() {
-  return {
-    channel: "chrome",
-    headless: false,
-    ignoreDefaultArgs: ["--no-sandbox", "--disable-setuid-sandbox"]
-  };
+export function brakesChromeLaunchCommand(
+  profilePath = "local-data/brakes-chrome-profile-cdp",
+  cdpPort = 9333
+): { command: string; args: string[] } {
+  return { command: "/usr/bin/open", args: brakesChromeLaunchArgs(profilePath, cdpPort) };
+}
+
+export function brakesChromeLaunchArgs(profilePath: string, cdpPort: number): string[] {
+  return [
+    "-na",
+    "Google Chrome",
+    "--args",
+    `--user-data-dir=${profilePath}`,
+    "--remote-debugging-address=127.0.0.1",
+    `--remote-debugging-port=${cdpPort}`,
+    "--new-window",
+    "https://www.brake.co.uk/cart"
+  ];
+}
+
+async function isCdpAvailable(endpoint: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${endpoint}/json/version`);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForCdp(endpoint: string): Promise<void> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (await isCdpAvailable(endpoint)) return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error("Brakes 专用 Chrome 启动超时，请关闭该窗口后重试。");
 }
 
 function pageAdapter(page: Page, _context: BrowserContext): BrakesQuickAddAdapter {

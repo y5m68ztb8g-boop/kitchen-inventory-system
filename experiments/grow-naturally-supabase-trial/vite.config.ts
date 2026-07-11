@@ -192,7 +192,8 @@ export default defineConfig(({ mode }) => {
     }
   };
   const realBrakesQuickAddRunner = createBrakesQuickAddRunner({
-    profilePath: env.GROW_NATURALLY_BRAKES_PROFILE_PATH || resolve("local-data", "brakes-chrome-profile")
+    cdpPort: Number(env.GROW_NATURALLY_BRAKES_CDP_PORT) || 9333,
+    profilePath: env.GROW_NATURALLY_BRAKES_PROFILE_PATH || resolve("local-data", "brakes-chrome-profile-cdp")
   });
   const supabaseConfig = isE2E ? null : getSupabaseConfig(env);
   const cloudSyncStatus: CloudSyncStatus = {

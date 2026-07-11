@@ -20,12 +20,21 @@ type QuickAddModule = {
     input?: { adapter?: FakeBrakesAdapter; adapterFactory?: () => Promise<FakeBrakesAdapter> }
   ): QuickAddRunner;
   buildRetryQueue(items: Array<QuickAddItem & { brakesStatus: "Pending" | QuickAddResult["status"] }>): QuickAddItem[];
-  brakesChromeLaunchOptions(): {
-    channel: "chrome";
-    headless: boolean;
-    args?: string[];
-    ignoreDefaultArgs: string[];
-  };
+};
+
+type BrakesLaunchConfigLike = {
+  command?: string;
+  executable?: string;
+  commandLine?: string[];
+  args?: string[];
+  argv?: string[];
+};
+
+type BrakesQuickAddModuleWithLaunchConfig = QuickAddModule & {
+  brakesChromeLaunchCommand?: () => string[] | string | BrakesLaunchConfigLike;
+  buildBrakesChromeLaunchCommand?: () => string[] | string | BrakesLaunchConfigLike;
+  buildBrakesChromeLaunchOptions?: () => string[] | string | BrakesLaunchConfigLike;
+  brakesChromeLaunchOptions?: () => BrakesLaunchConfigLike;
 };
 
 async function loadQuickAddModule(): Promise<QuickAddModule> {
@@ -40,6 +49,70 @@ function createAdapterWithClosedCart(
   const adapter = createFakeBrakesAdapter(outcomes);
   adapter.openCart = onOpenCart;
   return adapter;
+}
+
+function getBrakesLaunchConfig(module: BrakesQuickAddModuleWithLaunchConfig): { command: string; args: string[] } {
+  const factory =
+    module.brakesChromeLaunchCommand ??
+    module.buildBrakesChromeLaunchCommand ??
+    module.buildBrakesChromeLaunchOptions ??
+    module.brakesChromeLaunchOptions;
+
+  if (!factory) {
+    throw new Error("Brakes Chrome launch config factory is not exported");
+  }
+
+  const value = factory();
+  if (Array.isArray(value)) {
+    const [command, ...args] = value;
+    return { command: command, args };
+  }
+  if (typeof value === "string") {
+    return { command: "/usr/bin/open", args: value.split(" ").filter(Boolean) };
+  }
+  if (value && typeof value === "object") {
+    const command = (value.command || value.executable || "").toString();
+    const args = (value.args ?? value.argv ?? value.commandLine ?? []) as string[];
+    return { command, args };
+  }
+  return { command: "", args: [] };
+}
+
+function splitCommandLine(args: string[]): string[] {
+  const idx = args.lastIndexOf("--args");
+  if (idx >= 0) {
+    return args.slice(idx + 1);
+  }
+  return args;
+}
+
+function hasArg(args: string[], key: string): boolean {
+  return args.some((item) => item === key || item.startsWith(`${key}=`));
+}
+
+function hasArgPair(args: string[], key: string): boolean {
+  return args.some((item, index) => {
+    if (item === key) return typeof args[index + 1] === "string";
+    if (item.startsWith(`${key}=`)) return true;
+    return false;
+  });
+}
+
+function hasArgPrefix(args: string[], key: string): boolean {
+  return args.some((item) => item.startsWith(`${key}=`));
+}
+
+function getArgValue(args: string[], key: string): string | undefined {
+  for (let index = 0; index < args.length; index += 1) {
+    const item = args[index];
+    if (item === key && args[index + 1] !== undefined) {
+      return args[index + 1];
+    }
+    if (item.startsWith(`${key}=`)) {
+      return item.slice(key.length + 1);
+    }
+  }
+  return undefined;
 }
 
 describe("Brakes Quick Add runner", () => {
@@ -201,18 +274,28 @@ describe("Brakes Quick Add runner", () => {
     }
   });
 
-  it("launch options should not include sandbox-disabling flags for Brakes browser", async () => {
-    const launchOptions = module.brakesChromeLaunchOptions();
-    const args = launchOptions.args ?? [];
-    const ignoreDefaultArgs = launchOptions.ignoreDefaultArgs;
+  it("generates native Chrome CDP launch command for Brakes browser", () => {
+    const launchConfig = getBrakesLaunchConfig(module as BrakesQuickAddModuleWithLaunchConfig);
+    const launchArgs = launchConfig.args;
 
-    expect(args).not.toContain("--no-sandbox");
-    expect(args).not.toContain("--disable-setuid-sandbox");
-    expect(ignoreDefaultArgs).toContain("--no-sandbox");
-    expect(ignoreDefaultArgs).toContain("--disable-setuid-sandbox");
-    expect(launchOptions).toMatchObject({
-      channel: "chrome",
-      headless: false
-    });
+    expect(launchConfig.command).toBe("/usr/bin/open");
+    expect(launchArgs).toContain("-na");
+    expect(launchArgs).toContain("Google Chrome");
+    expect(launchArgs).toContain("--args");
+
+    const commandArgs = splitCommandLine(launchConfig.args);
+    const userDataDirArg = commandArgs.find((arg) => arg.startsWith("--user-data-dir"));
+    expect(userDataDirArg).toBeTruthy();
+    expect(userDataDirArg).toContain("=");
+
+    const remoteAddress = getArgValue(commandArgs, "--remote-debugging-address");
+    expect(remoteAddress).toBe("127.0.0.1");
+    const remotePort = getArgValue(commandArgs, "--remote-debugging-port");
+    expect(remotePort).toBeTruthy();
+    expect(remotePort?.trim()).toBe(remotePort);
+    expect(commandArgs).toContain("https://www.brake.co.uk/cart");
+    expect(hasArg(commandArgs, "--no-sandbox")).toBe(false);
+    expect(hasArg(commandArgs, "--disable-setuid-sandbox")).toBe(false);
+    expect(hasArg(commandArgs, "--enable-automation")).toBe(false);
   });
 });
