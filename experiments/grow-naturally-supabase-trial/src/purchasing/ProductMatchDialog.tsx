@@ -10,11 +10,12 @@ type ProductMatchDialogProps = {
   onClose: () => void;
   returnFocusElement: HTMLElement | null;
   selectedProductId: string | null;
+  secondaryAction?: { label: string; onClick: () => void };
 };
 
 const priceFormatter = new Intl.NumberFormat("en-GB", { currency: "GBP", style: "currency" });
 
-export function ProductMatchDialog({ itemName, onChoose, onClose, returnFocusElement, selectedProductId }: ProductMatchDialogProps) {
+export function ProductMatchDialog({ itemName, onChoose, onClose, returnFocusElement, secondaryAction, selectedProductId }: ProductMatchDialogProps) {
   const dialogRef = useRef<HTMLElement>(null);
   const [query, setQuery] = useState(itemName);
   const [products, setProducts] = useState<HistoricalProductCard[]>([]);
@@ -94,6 +95,7 @@ export function ProductMatchDialog({ itemName, onChoose, onClose, returnFocusEle
             <input aria-label="搜索历史发票商品" autoFocus onChange={(event) => setQuery(event.target.value)} value={query} />
           </div>
         </label>
+        {secondaryAction && <button className="product-match-secondary-action" onClick={secondaryAction.onClick} type="button">{secondaryAction.label}</button>}
 
         {loading && <p className="product-match-message">正在搜索...</p>}
         {error && <p className="product-match-error" role="alert">{error}</p>}

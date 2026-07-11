@@ -71,6 +71,14 @@
   margin-top: 16px;
 }
 
+.product-match-secondary-action {
+  background: #fff;
+  border: 1px solid #c8d1ca;
+  border-radius: 6px;
+  margin: 12px 0;
+  padding: 10px 14px;
+}
+
 .product-match-card {
   border: 1px solid #d2dbcf;
   border-radius: 6px;

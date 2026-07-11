@@ -343,4 +343,46 @@ describe("OrderingPage", () => {
     expect(await screen.findByText("部分已下单")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Brakes.*标记为已下单/ })).toBeEnabled();
   });
+
+  it("adds a directly entered unmatched product to the unmatched supplier group", async () => {
+    const user = userEvent.setup();
+    const unmatchedItem = {
+      id: "item-unmatched-task-7",
+      batchId: emptyBatch.id,
+      productName: "Local Event Garnish",
+      supplierGroup: "UNMATCHED",
+      supplierProductId: null,
+      supplierProductCode: null,
+      supplierName: null,
+      packSize: null,
+      orderQuantity: 3,
+      orderUnit: "tray",
+      lastPrice: null,
+      purchaseCount: null,
+      latestPurchaseDate: null,
+      brakesStatus: "Pending"
+    };
+    addOrderingItem.mockResolvedValue({
+      ...emptyBatch,
+      items: [unmatchedItem]
+    });
+    render(<OrderingPage />);
+
+    await user.click(await screen.findByRole("button", { name: "手动添加" }));
+    await user.click(screen.getByRole("button", { name: "直接录入未匹配商品" }));
+    await user.type(screen.getByLabelText("产品名称"), unmatchedItem.productName);
+    await user.clear(screen.getByLabelText("订购数量"));
+    await user.type(screen.getByLabelText("订购数量"), "3");
+    await user.type(screen.getByLabelText("单位"), unmatchedItem.orderUnit);
+    await user.click(screen.getByRole("button", { name: "添加到下单" }));
+
+    expect(addOrderingItem).toHaveBeenCalledWith(emptyBatch.id, {
+      productName: unmatchedItem.productName,
+      orderQuantity: 3,
+      orderUnit: unmatchedItem.orderUnit,
+      supplierGroup: "UNMATCHED"
+    });
+    expect(screen.getByRole("button", { name: "未匹配供应商 分组" })).toBeInTheDocument();
+    expect(await screen.findByText(unmatchedItem.productName)).toBeInTheDocument();
+  });
 });

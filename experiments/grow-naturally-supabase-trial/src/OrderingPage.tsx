@@ -48,6 +48,9 @@ export function OrderingPage() {
   const [manualOpen, setManualOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<HistoricalProductCard | null>(null);
   const [manualQuantity, setManualQuantity] = useState(1);
+  const [directEntry, setDirectEntry] = useState(false);
+  const [directProductName, setDirectProductName] = useState("");
+  const [directUnit, setDirectUnit] = useState("");
   const [inventoryReview, setInventoryReview] = useState<{ supplier: "CMP" | "MM" | "BRK"; items: InventoryReviewItem[] } | null>(null);
   const [emailDraft, setEmailDraft] = useState<SupplierEmailDraft | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -84,6 +87,21 @@ export function OrderingPage() {
     setBatch(next);
     setManualOpen(false);
     setSelectedProduct(null);
+    setManualQuantity(1);
+  }
+
+  async function addDirectProduct() {
+    if (!batch || !directProductName.trim() || !directUnit.trim() || !Number.isFinite(manualQuantity) || manualQuantity <= 0) return;
+    setBatch(await addOrderingItem(batch.id, {
+      productName: directProductName.trim(),
+      orderQuantity: manualQuantity,
+      orderUnit: directUnit.trim(),
+      supplierGroup: "UNMATCHED"
+    }));
+    setManualOpen(false);
+    setDirectEntry(false);
+    setDirectProductName("");
+    setDirectUnit("");
     setManualQuantity(1);
   }
 
@@ -201,13 +219,22 @@ export function OrderingPage() {
         })}
       </section>
 
-      {manualOpen && !selectedProduct && <ProductMatchDialog itemName="" onChoose={setSelectedProduct} onClose={() => setManualOpen(false)} returnFocusElement={null} selectedProductId={null} />}
+      {manualOpen && !selectedProduct && !directEntry && <ProductMatchDialog itemName="" onChoose={setSelectedProduct} onClose={() => setManualOpen(false)} returnFocusElement={null} secondaryAction={{ label: "直接录入未匹配商品", onClick: () => setDirectEntry(true) }} selectedProductId={null} />}
       {manualOpen && selectedProduct && (
         <div className="ordering-dialog-backdrop"><section aria-label="添加下单商品" aria-modal="true" className="ordering-dialog ordering-add-dialog" role="dialog">
           <header><div><p>{selectedProduct.supplierName}</p><h2>{selectedProduct.productName}</h2></div><button aria-label="关闭手动添加" className="ordering-icon-button" onClick={() => setManualOpen(false)} type="button"><X size={20} /></button></header>
           <dl><div><dt>产品编码</dt><dd>{selectedProduct.supplierProductCode}</dd></div><div><dt>完整包装</dt><dd>{selectedProduct.packSize}</dd></div></dl>
           <label><span>订购数量（完整供应商包装）</span><input aria-label="订购数量" min="0.01" onChange={(event) => setManualQuantity(Number(event.target.value))} step="any" type="number" value={manualQuantity} /></label>
           <div className="ordering-dialog-actions"><button onClick={() => setSelectedProduct(null)} type="button">重新选择</button><button className="ordering-primary" onClick={() => void addSelectedProduct()} type="button">添加到下单</button></div>
+        </section></div>
+      )}
+      {manualOpen && directEntry && (
+        <div className="ordering-dialog-backdrop"><section aria-label="直接录入未匹配商品" aria-modal="true" className="ordering-dialog ordering-add-dialog" role="dialog">
+          <header><div><p>首次采购或尚未匹配</p><h2>直接录入未匹配商品</h2></div><button aria-label="关闭直接录入" className="ordering-icon-button" onClick={() => setManualOpen(false)} type="button"><X size={20} /></button></header>
+          <label><span>产品名称</span><input aria-label="产品名称" onChange={(event) => setDirectProductName(event.target.value)} value={directProductName} /></label>
+          <label><span>订购数量</span><input aria-label="订购数量" min="0.01" onChange={(event) => setManualQuantity(Number(event.target.value))} step="any" type="number" value={manualQuantity} /></label>
+          <label><span>单位</span><input aria-label="单位" onChange={(event) => setDirectUnit(event.target.value)} placeholder="例如 case、tray、kg" value={directUnit} /></label>
+          <div className="ordering-dialog-actions"><button onClick={() => setDirectEntry(false)} type="button">返回历史商品</button><button className="ordering-primary" onClick={() => void addDirectProduct()} type="button">添加到下单</button></div>
         </section></div>
       )}
 
