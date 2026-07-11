@@ -80,10 +80,18 @@ export function buildRetryQueue(
 }
 
 async function createPlaywrightAdapter(profilePath: string): Promise<BrakesQuickAddAdapter> {
-  const context = await chromium.launchPersistentContext(profilePath, { channel: "chrome", headless: false });
+  const context = await chromium.launchPersistentContext(profilePath, brakesChromeLaunchOptions());
   const pages = context.pages();
   const page = pages[0] || (await context.newPage());
   return pageAdapter(page, context);
+}
+
+export function brakesChromeLaunchOptions() {
+  return {
+    channel: "chrome",
+    headless: false,
+    ignoreDefaultArgs: ["--no-sandbox", "--disable-setuid-sandbox"]
+  };
 }
 
 function pageAdapter(page: Page, _context: BrowserContext): BrakesQuickAddAdapter {

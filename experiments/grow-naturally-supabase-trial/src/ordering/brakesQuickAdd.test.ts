@@ -20,6 +20,12 @@ type QuickAddModule = {
     input?: { adapter?: FakeBrakesAdapter; adapterFactory?: () => Promise<FakeBrakesAdapter> }
   ): QuickAddRunner;
   buildRetryQueue(items: Array<QuickAddItem & { brakesStatus: "Pending" | QuickAddResult["status"] }>): QuickAddItem[];
+  brakesChromeLaunchOptions(): {
+    channel: "chrome";
+    headless: boolean;
+    args?: string[];
+    ignoreDefaultArgs: string[];
+  };
 };
 
 async function loadQuickAddModule(): Promise<QuickAddModule> {
@@ -193,5 +199,20 @@ describe("Brakes Quick Add runner", () => {
       });
       expect(result[index].message).toBe("Target page, context or browser has been closed");
     }
+  });
+
+  it("launch options should not include sandbox-disabling flags for Brakes browser", async () => {
+    const launchOptions = module.brakesChromeLaunchOptions();
+    const args = launchOptions.args ?? [];
+    const ignoreDefaultArgs = launchOptions.ignoreDefaultArgs;
+
+    expect(args).not.toContain("--no-sandbox");
+    expect(args).not.toContain("--disable-setuid-sandbox");
+    expect(ignoreDefaultArgs).toContain("--no-sandbox");
+    expect(ignoreDefaultArgs).toContain("--disable-setuid-sandbox");
+    expect(launchOptions).toMatchObject({
+      channel: "chrome",
+      headless: false
+    });
   });
 });
