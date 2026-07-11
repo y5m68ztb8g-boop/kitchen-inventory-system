@@ -74,7 +74,7 @@ export function buildOrderingInventorySnapshot(
       totalEquivalentQuantity: 0,
       locations: []
     };
-    snapshot.totalEquivalentQuantity = Math.max(snapshot.totalEquivalentQuantity, equivalentQuantity);
+    snapshot.totalEquivalentQuantity += equivalentQuantity;
     snapshot.locations.push({
       warehouse: entry.warehouse,
       warehouseLabel: entry.warehouse === "freezer" ? "冷冻库" : "干货库",
