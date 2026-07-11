@@ -11,7 +11,8 @@ import { StorageAreaPage } from "./StorageAreaPage";
 import { ValuationPage } from "./ValuationPage";
 
 function getRoute() {
-  return window.location.hash.replace("#", "");
+  const [name, query = ""] = window.location.hash.replace("#", "").split("?", 2);
+  return { name, searchParams: new URLSearchParams(query) };
 }
 
 export function App() {
@@ -24,51 +25,51 @@ export function App() {
     return () => window.removeEventListener("hashchange", handleRouteChange);
   }, []);
 
-  if (route === "search") {
+  if (route.name === "search") {
     return <SearchPage />;
   }
 
-  if (route === "purchasing") {
+  if (route.name === "purchasing") {
     return <PurchasingPage />;
   }
 
-  if (route === "freezer") {
-    return <FreezerPage />;
+  if (route.name === "freezer") {
+    return <FreezerPage initialLocation={route.searchParams.get("location")} supplierProductId={route.searchParams.get("supplierProductId")} />;
   }
 
-  if (route === "chiller") {
+  if (route.name === "chiller") {
     return <StorageAreaPage title="冷藏库" subtitle="Chiller" />;
   }
 
-  if (route === "dry-store") {
-    return <DryStorePage />;
+  if (route.name === "dry-store") {
+    return <DryStorePage initialLocation={route.searchParams.get("location")} supplierProductId={route.searchParams.get("supplierProductId")} />;
   }
 
-  if (route === "drinks") {
+  if (route.name === "drinks") {
     return <StorageAreaPage title="酒水库" subtitle="Drinks" />;
   }
 
-  if (route === "valuation") {
+  if (route.name === "valuation") {
     return <ValuationPage />;
   }
 
-  if (route === "valuation-freezer") {
+  if (route.name === "valuation-freezer") {
     return <ValuationPage scope="freezer" />;
   }
 
-  if (route === "valuation-chiller") {
+  if (route.name === "valuation-chiller") {
     return <ValuationPage scope="chiller" />;
   }
 
-  if (route === "valuation-dry-store") {
+  if (route.name === "valuation-dry-store") {
     return <ValuationPage scope="dry-store" />;
   }
 
-  if (route === "valuation-drinks") {
+  if (route.name === "valuation-drinks") {
     return <ValuationPage scope="drinks" />;
   }
 
-  if (route === "cloud-sync") {
+  if (route.name === "cloud-sync") {
     return <CloudSyncPage />;
   }
 

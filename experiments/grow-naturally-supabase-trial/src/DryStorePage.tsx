@@ -40,7 +40,13 @@ type RenameTarget = {
   name: string;
 };
 
-export function DryStorePage() {
+export function DryStorePage({
+  initialLocation,
+  supplierProductId
+}: {
+  initialLocation?: string | null;
+  supplierProductId?: string | null;
+} = {}) {
   const copy = getCopy();
   const [entries, setEntries] = useState<InventoryEntry[]>(() => loadInventoryEntries("dry-store"));
   const [formOpen, setFormOpen] = useState(false);
@@ -51,7 +57,9 @@ export function DryStorePage() {
   const [unit, setUnit] = useState("");
   const [selectedSupplierProduct, setSelectedSupplierProduct] = useState<SupplierProduct | null>(null);
   const [pendingDelete, setPendingDelete] = useState<DeleteRequest | null>(null);
-  const [locationFilter, setLocationFilter] = useState(allLocationFilter);
+  const [locationFilter, setLocationFilter] = useState(() =>
+    dryStoreAreas.some((area) => area.positions.includes(initialLocation || "")) ? initialLocation || allLocationFilter : allLocationFilter
+  );
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
   const invoiceResults = useMemo(() => searchSupplierProducts(productName), [productName]);
   const inventoryTableRows = useMemo(
@@ -470,7 +478,12 @@ export function DryStorePage() {
               <span role="columnheader">供应商 / 价格</span>
             </div>
             {inventoryTableRows.map(({ entry }) => (
-              <article className="inventory-table-row" key={entry.id} role="row">
+              <article
+                aria-current={isDeepLinkedEntry(entry, supplierProductId, initialLocation) ? "true" : undefined}
+                className={"inventory-table-row" + (isDeepLinkedEntry(entry, supplierProductId, initialLocation) ? " inventory-table-row-highlighted" : "")}
+                key={entry.id}
+                role="row"
+              >
                 <span className="inventory-product-cell" role="cell">
                   {renderProductNameControl(entry)}
                   {entry.productName !== entry.supplierProduct.productName ? (
@@ -546,6 +559,10 @@ function compareDryStoreRows(
 
   return getDryStoreLocationSortRank(left.entry.locationCode) - getDryStoreLocationSortRank(right.entry.locationCode) ||
     left.sortIndex - right.sortIndex;
+}
+
+function isDeepLinkedEntry(entry: InventoryEntry, supplierProductId?: string | null, locationCode?: string | null) {
+  return Boolean(supplierProductId && locationCode && entry.supplierProduct.id === supplierProductId && entry.locationCode === locationCode);
 }
 
 function getDryStoreLocationSortRank(locationCode: string) {

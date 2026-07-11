@@ -4,9 +4,17 @@
     "outDir": "./node_modules/.cache/tsconfig.node",
     "skipLibCheck": true,
     "strict": true,
+    "target": "ES2020",
     "module": "ESNext",
     "moduleResolution": "Node",
     "allowSyntheticDefaultImports": true
   },
-  "include": ["vite.config.ts", "server/**/*.ts", "src/purchasing/types.ts"]
+  "include": [
+    "vite.config.ts",
+    "server/**/*.ts",
+    "src/inventoryQuantity.ts",
+    "src/supplierProducts.ts",
+    "src/generated/**/*.ts",
+    "src/purchasing/types.ts"
+  ]
 }

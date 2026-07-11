@@ -1372,6 +1372,11 @@ button.home-module:focus-visible,
   border-top: 1px solid rgba(224, 230, 238, 0.9);
 }
 
+.inventory-table-row.inventory-table-row-highlighted {
+  background: #e6f7f4;
+  box-shadow: inset 4px 0 0 #0f766e;
+}
+
 .inventory-table-head {
   align-items: center;
   background: rgba(241, 245, 249, 0.82);

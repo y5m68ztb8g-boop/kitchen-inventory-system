@@ -1,5 +1,8 @@
 import { describeFreezerLocation, type StockItem } from "./inventoryData";
+import { calculateInventoryUnits } from "./inventoryQuantity";
 import type { SupplierProduct } from "./supplierProducts";
+
+export { calculateInventoryUnits, getInventoryPackageCounts, getSupplierUnitsPerCase } from "./inventoryQuantity";
 
 const STORAGE_KEY = "grow-naturally-freezer-inventory";
 const DRY_STORE_STORAGE_KEY = "grow-naturally-dry-store-inventory";
@@ -143,17 +146,6 @@ export function buildInventoryEntry(input: {
   };
 }
 
-export function calculateInventoryUnits(entry: InventoryEntry) {
-  const packageCounts = getInventoryPackageCounts(entry);
-  const hasPackageCountOverride = entry.fullPackageCount !== undefined || entry.loosePackageCount !== undefined;
-  const hasLoosePackageCount = Boolean(entry.quantityText && packageCounts.loosePackageCount > 0);
-  if (packageCounts.unitsPerCase > 1 && (hasCaseQuantity(entry.quantityText || "") || hasLoosePackageCount || hasPackageCountOverride)) {
-    return packageCounts.fullPackageCount + packageCounts.loosePackageCount / packageCounts.unitsPerCase;
-  }
-
-  return entry.quantity + (entry.openPackagePercent || 0) / 100;
-}
-
 export function calculateInventoryLineTotal(entry: InventoryEntry) {
   return calculateInventoryUnits(entry) * entry.supplierProduct.latestPrice;
 }
@@ -214,17 +206,6 @@ export function formatEntryQuantity(entry: InventoryEntry) {
   return `${baseQuantity} + ${entry.openPackagePercent}%`;
 }
 
-export function getInventoryPackageCounts(entry: InventoryEntry) {
-  const unitsPerCase = getSupplierUnitsPerCase(entry.supplierProduct);
-  const parsedCounts = entry.quantityText ? parsePackageCounts(entry.quantityText) : null;
-
-  return {
-    fullPackageCount: entry.fullPackageCount ?? parsedCounts?.fullPackageCount ?? entry.quantity,
-    loosePackageCount: entry.loosePackageCount ?? parsedCounts?.loosePackageCount ?? 0,
-    unitsPerCase
-  };
-}
-
 export function parseRecordedQuantity(quantityText: string) {
   const numbers = [...quantityText.matchAll(/\d+(?:\.\d+)?/g)].map((match) => Number(match[0]));
   const quantity = numbers.length > 0 ? numbers.reduce((total, value) => total + value, 0) : 1;
@@ -278,7 +259,7 @@ function hasCaseQuantity(quantityText: string) {
   return /\b(?:case|cases|open\s+case|open\s+cases)\b/i.test(quantityText);
 }
 
-export function getSupplierUnitsPerCase(product: SupplierProduct) {
+function legacyGetSupplierUnitsPerCase(product: SupplierProduct) {
   const knownLoosePackageCounts: Record<string, number> = {
     "BRK-123224": 12,
     "BRK-136269": 2,

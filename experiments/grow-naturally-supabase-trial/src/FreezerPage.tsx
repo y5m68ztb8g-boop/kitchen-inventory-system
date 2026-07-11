@@ -46,7 +46,13 @@ type RenameTarget = {
   name: string;
 };
 
-export function FreezerPage() {
+export function FreezerPage({
+  initialLocation,
+  supplierProductId
+}: {
+  initialLocation?: string | null;
+  supplierProductId?: string | null;
+} = {}) {
   const copy = getCopy();
   const [entries, setEntries] = useState<InventoryEntry[]>(() => syncRecordedEntries(loadInventoryEntries()));
   const [deletedSourceIds, setDeletedSourceIds] = useState<Set<string>>(
@@ -63,7 +69,9 @@ export function FreezerPage() {
   const [matchQuery, setMatchQuery] = useState("");
   const [selectedMatchProduct, setSelectedMatchProduct] = useState<SupplierProduct | null>(null);
   const [pendingDelete, setPendingDelete] = useState<DeleteRequest | null>(null);
-  const [locationFilter, setLocationFilter] = useState(allLocationFilter);
+  const [locationFilter, setLocationFilter] = useState(() =>
+    freezerAreas.some((area) => area.positions.includes(initialLocation || "")) ? initialLocation || allLocationFilter : allLocationFilter
+  );
   const [sourceNameOverrides, setSourceNameOverrides] = useState<Record<string, string>>(
     () => loadSourceProductNameOverrides()
   );
@@ -435,7 +443,11 @@ export function FreezerPage() {
 
     return (
       <Fragment key={entry.id}>
-        <article className="inventory-table-row" role="row">
+        <article
+          aria-current={isDeepLinkedEntry(entry, supplierProductId, initialLocation) ? "true" : undefined}
+          className={"inventory-table-row" + (isDeepLinkedEntry(entry, supplierProductId, initialLocation) ? " inventory-table-row-highlighted" : "")}
+          role="row"
+        >
           <span className="inventory-product-cell" role="cell">
             {renderProductNameControl(renameKey, entry.productName)}
             {entry.productName !== entry.supplierProduct.productName ? (
@@ -871,6 +883,10 @@ type InventoryTableRow =
 
 function getTableRowLocationCode(row: InventoryTableRow) {
   return row.type === "pending" ? row.item.locationCode : row.entry.locationCode;
+}
+
+function isDeepLinkedEntry(entry: InventoryEntry, supplierProductId?: string | null, locationCode?: string | null) {
+  return Boolean(supplierProductId && locationCode && entry.supplierProduct.id === supplierProductId && entry.locationCode === locationCode);
 }
 
 function compareInventoryRows(left: InventoryTableRow, right: InventoryTableRow, locationFilter: string) {
