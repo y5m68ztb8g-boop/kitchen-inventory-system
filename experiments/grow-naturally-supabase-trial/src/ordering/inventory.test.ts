@@ -3,40 +3,75 @@
 import { describe, expect, it } from "vitest";
 
 import { calculateInventoryUnits } from "../inventoryQuantity";
-import { buildOrderingInventorySnapshot, inventorySnapshotKey } from "../../server/ordering/inventory";
+import {
+  buildOrderingInventorySnapshot,
+  inventoryDeepLink,
+  inventorySnapshotKey
+} from "../../server/ordering/inventory";
 
-const baseInventoryDb = [
-  {
-    supplierProductId: "BRK-100243",
-    packSize: "8x6",
-    warehouse: "freezer",
-    locationCode: "A1",
-    fullPackageCount: 1,
-    loosePackageCount: 4
-  },
-  {
-    supplierProductId: "BRK-100243",
-    packSize: "8x6",
-    warehouse: "dry-store",
-    locationCode: "C0",
-    fullPackageCount: 1,
-    loosePackageCount: 0
-  }
-] as const;
+const baseInventoryDb = {
+  freezer: [
+    {
+      supplierProductId: "BRK-100243",
+      packSize: "8x6",
+      locationCode: "A1",
+      fullPackageCount: 1,
+      loosePackageCount: 4
+    }
+  ],
+  dryStore: [
+    {
+      supplierProductId: "BRK-100243",
+      packSize: "8x6",
+      locationCode: "C0",
+      fullPackageCount: 1,
+      loosePackageCount: 0
+    }
+  ]
+};
+
+const baseInventorySnapshot = buildOrderingInventorySnapshot(baseInventoryDb, []);
+
+const dryStoreLocation = baseInventorySnapshot.get("BRK-100243")?.locations.find((location) => location.warehouse === "dry-store");
+
+const dryStoreInventoryDeepLink = dryStoreLocation
+  ? inventoryDeepLink("BRK-100243", dryStoreLocation)
+  : "";
+
+const freezerLocation = baseInventorySnapshot.get("BRK-100243")?.locations.find((location) => location.warehouse === "freezer");
+
+const freezerInventoryDeepLink = freezerLocation ? inventoryDeepLink("BRK-100243", freezerLocation) : "";
 
 describe("ordering inventory snapshots", () => {
   it("converts full and loose packages into equivalent supplier packs", () => {
-    const snapshot = buildOrderingInventorySnapshot(baseInventoryDb as unknown as Record<string, unknown>[], []);
-
-    expect(snapshot.get("BRK-100243")?.totalEquivalentQuantity).toBe(2.5);
+    expect(baseInventorySnapshot.get("BRK-100243")?.totalEquivalentQuantity).toBe(2.5);
   });
 
   it("keeps every location for one matched supplier product", () => {
-    const snapshot = buildOrderingInventorySnapshot(baseInventoryDb as unknown as Record<string, unknown>[], []);
-    expect(snapshot.get("BRK-100243")?.locations).toEqual([
+    expect(baseInventorySnapshot.get("BRK-100243")?.locations).toEqual([
       expect.objectContaining({ warehouse: "freezer", locationCode: "A1", equivalentQuantity: 1.5 }),
       expect.objectContaining({ warehouse: "dry-store", locationCode: "C0", equivalentQuantity: 1 })
     ]);
+  });
+
+  it("projects dry-store inventory metadata and deep link target", () => {
+    expect(dryStoreLocation).toEqual(
+      expect.objectContaining({
+        warehouse: "dry-store",
+        warehouseLabel: "干货库",
+        locationCode: "C0",
+        equivalentQuantity: 1
+      })
+    );
+    expect(freezerLocation).toEqual(
+      expect.objectContaining({
+        warehouse: "freezer",
+        warehouseLabel: "冷冻库",
+        locationCode: "A1",
+        equivalentQuantity: 1.5
+      })
+    );
+    expect(dryStoreInventoryDeepLink).toBe("#dry-store?supplierProductId=BRK-100243&location=C0");
   });
 
   it("produces deterministic snapshot keys for downstream sync and routing", () => {
