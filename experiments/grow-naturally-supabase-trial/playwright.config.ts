@@ -12,6 +12,7 @@ export default defineConfig({
   },
   use: {
     baseURL: "http://127.0.0.1:4174",
+    screenshot: "only-on-failure",
     trace: "on-first-retry"
   },
   projects: [

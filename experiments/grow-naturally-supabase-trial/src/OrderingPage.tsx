@@ -53,6 +53,7 @@ export function OrderingPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [confirmOrdered, setConfirmOrdered] = useState<{ code: "CMP" | "MM" | "BRK"; name: string } | null>(null);
   const [quickAddRunning, setQuickAddRunning] = useState(false);
+  const [poSaving, setPoSaving] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -128,6 +129,14 @@ export function OrderingPage() {
     finally { setQuickAddRunning(false); }
   }
 
+  async function persistPo() {
+    if (!batch || poSaving) return;
+    setPoSaving(true);
+    try { setBatch(await saveBatchPo(batch.id, batch.poNumber)); }
+    catch (nextError) { setError(nextError instanceof Error ? nextError.message : "PO 保存失败。 "); }
+    finally { setPoSaving(false); }
+  }
+
   if (!batch) {
     return <main className="ordering-page"><p>{error ?? "正在加载下单清单..."}</p></main>;
   }
@@ -143,8 +152,8 @@ export function OrderingPage() {
       <p className="ordering-batch-status">{batch.status === "Ordered" ? "全部已下单" : batch.status === "PartiallyOrdered" ? "部分已下单" : "草稿"}</p>
 
       <section className="ordering-toolbar" aria-label="下单基本信息">
-        <label><span>采购 PO 号码</span><input aria-label="采购 PO 号码" onBlur={() => void saveBatchPo(batch.id, batch.poNumber).then(setBatch).catch((nextError) => setError(String(nextError)))} onChange={(event) => setBatch({ ...batch, poNumber: event.target.value })} placeholder="从前台系统取得后填写" value={batch.poNumber} /></label>
-        <button onClick={() => setManualOpen(true)} type="button"><Plus size={18} />手动添加</button>
+        <label><span>采购 PO 号码</span><input aria-label="采购 PO 号码" onBlur={() => void persistPo()} onChange={(event) => setBatch({ ...batch, poNumber: event.target.value })} placeholder="从前台系统取得后填写" value={batch.poNumber} /></label>
+        <button disabled={poSaving} onClick={() => setManualOpen(true)} type="button"><Plus size={18} />{poSaving ? "正在保存 PO..." : "手动添加"}</button>
       </section>
 
       {readyIntakes.length > 0 && (
@@ -166,8 +175,8 @@ export function OrderingPage() {
                 <button aria-expanded={open} aria-label={`${group.name} 分组`} className="ordering-group-toggle" onClick={() => toggleGroup(group.code)} type="button">
                   <span>{group.name}<small>{items.length} 项</small></span>{open ? <ChevronUp size={19} /> : <ChevronDown size={19} />}
                 </button>
-                {group.code !== "UNMATCHED" && group.code !== "BRK" && supplier?.status !== "Ordered" && <button className="ordering-prepare-button" onClick={() => void prepare(group.code as "CMP" | "MM")} type="button">{`准备 ${group.name} 邮件`}</button>}
-                {group.code === "BRK" && supplier?.status !== "Ordered" && <button className="ordering-prepare-button" disabled={quickAddRunning} onClick={() => void fillBrakesCart()} type="button">{quickAddRunning ? "正在填入..." : hasRetryableBrakes ? "重试 Brakes Quick Add" : "填入 Brakes 购物车"}</button>}
+                {group.code !== "UNMATCHED" && group.code !== "BRK" && supplier?.status !== "Ordered" && <button className="ordering-prepare-button" disabled={poSaving} onClick={() => void prepare(group.code as "CMP" | "MM")} type="button">{`准备 ${group.name} 邮件`}</button>}
+                {group.code === "BRK" && supplier?.status !== "Ordered" && <button className="ordering-prepare-button" disabled={quickAddRunning || poSaving} onClick={() => void fillBrakesCart()} type="button">{quickAddRunning ? "正在填入..." : hasRetryableBrakes ? "重试 Brakes Quick Add" : "填入 Brakes 购物车"}</button>}
                 {supplier?.status === "Prepared" && <button aria-label={`${group.name} 标记为已下单`} className="ordering-ordered-button" onClick={() => setConfirmOrdered({ code: supplier.supplierCode, name: group.name })} type="button">标记为已下单</button>}
                 {supplier?.status === "Ordered" && <span className="ordering-ordered-state">已下单</span>}
               </header>

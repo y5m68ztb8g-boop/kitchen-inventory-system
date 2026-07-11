@@ -151,8 +151,8 @@
   .ordering-prepare-button { width: 100%; }
   .ordering-item { grid-template-columns: minmax(0, 1fr) 100px 40px; }
   .ordering-item-name { grid-column: 1 / -1; }
-  .ordering-item > div:nth-of-type(2),
-  .ordering-item > div:nth-of-type(3) { display: none; }
+  .ordering-item > div:nth-of-type(3),
+  .ordering-item > div:nth-of-type(4) { display: none; }
   .ordering-dialog-actions { align-items: stretch; flex-direction: column; }
   .inventory-review-list article > div:first-child { flex-direction: column; }
 }
