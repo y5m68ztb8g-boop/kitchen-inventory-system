@@ -1,0 +1,29 @@
+services:
+  grow-naturally:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: grow-naturally:public
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      AUTH_REQUIRED: "${AUTH_REQUIRED:-true}"
+      VITE_AUTH_REQUIRED: "${VITE_AUTH_REQUIRED:-true}"
+      AUTH_COOKIE_SECURE: "${AUTH_COOKIE_SECURE:-true}"
+    ports:
+      - "127.0.0.1:4174:4174"
+    volumes:
+      - ./local-data:/app/local-data
+    restart: unless-stopped
+    init: true
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4174/').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s

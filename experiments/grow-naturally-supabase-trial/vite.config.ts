@@ -12,6 +12,11 @@ import { installPurchasingRoutes } from "./server/purchasing/routes";
 import { buildOrderingInventorySnapshot } from "./server/ordering/inventory";
 import { installOrderingRoutes } from "./server/ordering/routes";
 import { createBrakesQuickAddRunner } from "./server/ordering/brakesQuickAdd";
+import { createWineCellarDatabase } from "./server/wine-cellar/database";
+import { installWineCellarRoutes } from "./server/wine-cellar/routes";
+import { createSmtpEmailSender } from "./server/ordering/emailSender";
+import { createAuthService } from "./server/auth/database";
+import { createAuthGuard, installAuthRoutes } from "./server/auth/routes";
 
 const inventoryDatabasePath = resolve(
   process.cwd(),
@@ -20,6 +25,14 @@ const inventoryDatabasePath = resolve(
 const purchasingDatabasePath = resolve(
   process.cwd(),
   process.env.GROW_NATURALLY_PURCHASING_DB_PATH || resolve("local-data", "purchasing.sqlite")
+);
+const wineCellarDatabasePath = resolve(
+  process.cwd(),
+  process.env.GROW_NATURALLY_WINE_CELLAR_DB_PATH || resolve("local-data", "wine-cellar.sqlite")
+);
+const authDatabasePath = resolve(
+  process.cwd(),
+  process.env.GROW_NATURALLY_AUTH_DB_PATH || resolve("local-data", "auth.sqlite")
 );
 const emptyInventoryDatabase = {
   deletedFreezerInventoryIds: [],
@@ -184,7 +197,7 @@ async function writeCloudInventoryDatabase(config: SupabaseConfig, database: unk
 }
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), "");
+  const env = { ...loadEnv(mode, process.cwd(), ""), ...process.env } as Record<string, string>;
   const isE2E = process.env.GROW_NATURALLY_E2E === "1" || env.GROW_NATURALLY_E2E === "1";
   const fakeBrakesQuickAddRunner = {
     async fill(items: Array<{ itemId: string }>) {
@@ -231,12 +244,31 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-  plugins: [
+    server: {
+      allowedHosts: ["tintostock.uk", "www.tintostock.uk"]
+    },
+    preview: {
+      allowedHosts: ["tintostock.uk", "www.tintostock.uk"]
+    },
+    plugins: [
     react(),
     {
       name: "grow-naturally-external-opener",
       configureServer(server) {
+        const authService = createAuthService(authDatabasePath, {
+          allowWeakBootstrapPassword: env.AUTH_ALLOW_WEAK_BOOTSTRAP_PASSWORD === "true",
+          bootstrapDisplayName: env.AUTH_ADMIN_NAME || "Alex",
+          bootstrapPassword: env.AUTH_ADMIN_PASSWORD,
+          bootstrapUsername: env.AUTH_ADMIN_USERNAME || "alex",
+          cookieSecure: env.AUTH_COOKIE_SECURE === "true",
+          required: env.AUTH_REQUIRED === "true",
+          sessionTtlSeconds: Number(env.AUTH_SESSION_TTL_SECONDS) || undefined
+        });
+        installAuthRoutes(server, authService);
+        server.middlewares.use(createAuthGuard(authService));
+
         const purchasingDatabase = createPurchasingDatabase(purchasingDatabasePath);
+        const wineCellarDatabase = createWineCellarDatabase(isE2E ? ":memory:" : wineCellarDatabasePath);
         installPurchasingRoutes(server, {
           database: purchasingDatabase,
           historicalCandidates: async () =>
@@ -263,6 +295,7 @@ export default defineConfig(({ mode }) => {
         installOrderingRoutes(server, {
           brakesQuickAddRunner: isE2E ? fakeBrakesQuickAddRunner : realBrakesQuickAddRunner,
           database: purchasingDatabase,
+          sendEmail: isE2E ? undefined : createSmtpEmailSender({ ...process.env, ...env }),
           historicalCandidates: async () =>
             (await server.ssrLoadModule("/src/generated/supplierCatalogue.ts")).SUPPLIER_CATALOGUE,
           orderingInventory: async () =>
@@ -271,6 +304,7 @@ export default defineConfig(({ mode }) => {
               (await server.ssrLoadModule("/src/generated/freezerInventory.ts")).FREEZER_INVENTORY
             )
         });
+        installWineCellarRoutes(server, wineCellarDatabase);
 
         server.middlewares.use("/api/inventory-db", async (request, response) => {
           if (request.method === "GET") {
@@ -397,7 +431,7 @@ export default defineConfig(({ mode }) => {
         url: "http://127.0.0.1:5173/"
       }
     },
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "server/**/*.test.ts"],
     setupFiles: "./src/test/setup.ts",
     globals: true
   }

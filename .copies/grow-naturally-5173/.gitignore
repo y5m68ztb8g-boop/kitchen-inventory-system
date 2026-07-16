@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+.playwright/
+local-data/brakes-chrome-profile/
+playwright-report/
+test-results/
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js
+local-data/
+.env.local

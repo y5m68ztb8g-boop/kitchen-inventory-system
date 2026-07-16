@@ -1,0 +1,140 @@
+.product-match-backdrop {
+  align-items: center;
+  background: rgb(21 31 20 / 58%);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 16px;
+  position: fixed;
+  z-index: 30;
+}
+
+.product-match-dialog {
+  background: #fff;
+  border: 1px solid #cfd8cc;
+  max-height: calc(100vh - 32px);
+  max-width: 880px;
+  overflow: auto;
+  padding: 20px;
+  width: min(100%, 880px);
+}
+
+.product-match-header,
+.product-match-card-heading {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.product-match-header p,
+.product-match-card p {
+  color: #5d685b;
+  margin: 0;
+}
+
+.product-match-header h2,
+.product-match-card h3 {
+  margin: 3px 0 0;
+}
+
+.product-match-search {
+  display: grid;
+  gap: 6px;
+  margin-top: 18px;
+}
+
+.product-match-search > span {
+  color: #526052;
+  font-size: 13px;
+}
+
+.product-match-search > div {
+  align-items: center;
+  border: 1px solid #bdc9b9;
+  display: flex;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+}
+
+.product-match-search input {
+  border: 0;
+  flex: 1;
+  min-width: 0;
+  outline: 0;
+}
+
+.product-match-results {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.product-match-secondary-action {
+  background: #fff;
+  border: 1px solid #c8d1ca;
+  border-radius: 6px;
+  margin: 12px 0;
+  padding: 10px 14px;
+}
+
+.product-match-card {
+  border: 1px solid #d2dbcf;
+  border-radius: 6px;
+  padding: 16px;
+}
+
+.product-match-card .purchasing-primary-action {
+  min-height: 44px;
+}
+
+.product-match-card-selected {
+  border-color: #2f7040;
+  box-shadow: inset 3px 0 #2f7040;
+}
+
+.product-match-recommended {
+  background: #e5f1e6;
+  color: #285a34;
+  display: inline-block;
+  font-size: 12px;
+  margin-bottom: 5px;
+  padding: 3px 7px;
+}
+
+.product-match-card dl {
+  display: grid;
+  gap: 10px 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 14px 0;
+}
+
+.product-match-card dt {
+  color: #637060;
+  font-size: 12px;
+}
+
+.product-match-card dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.product-match-message,
+.product-match-error {
+  margin: 18px 0 0;
+}
+
+.product-match-error {
+  color: #a22a20;
+}
+
+@media (max-width: 620px) {
+  .product-match-dialog {
+    padding: 16px;
+  }
+
+  .product-match-card dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

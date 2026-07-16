@@ -1,6 +1,18 @@
 :root {
-  color: #1d1d1f;
-  background: #fbfbfd;
+  --app-background: #f7f8fa;
+  --app-surface: #ffffff;
+  --app-surface-muted: #f4f5f7;
+  --app-border: #e4e7ec;
+  --app-border-strong: #d2d6de;
+  --app-text: #1f2329;
+  --app-text-muted: #697386;
+  --app-accent: #5e6ad2;
+  --app-accent-soft: #eef0ff;
+  --app-success: #16825d;
+  --app-warning: #b7791f;
+  --app-danger: #c2413b;
+  color: var(--app-text);
+  background: var(--app-background);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
@@ -21,7 +33,748 @@ body,
 }
 
 body {
+  background: var(--app-background);
   margin: 0;
+}
+
+.auth-login-shell {
+  align-items: center;
+  background: #f6f8fb;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.auth-login-panel {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid #e2e7ef;
+  border-radius: 18px;
+  box-shadow: 0 24px 80px rgba(19, 35, 58, 0.12);
+  max-width: 420px;
+  padding: 32px;
+  width: 100%;
+}
+
+.auth-login-icon {
+  align-items: center;
+  background: #e9f1ff;
+  border-radius: 12px;
+  color: #2257a5;
+  display: flex;
+  height: 48px;
+  justify-content: center;
+  width: 48px;
+}
+
+.auth-login-eyebrow {
+  color: #687588;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  margin: 22px 0 8px;
+  text-transform: uppercase;
+}
+
+.auth-login-panel h1 {
+  font-size: 28px;
+  margin: 0;
+}
+
+.auth-login-message {
+  color: #647184;
+  line-height: 1.6;
+  margin: 10px 0 24px;
+}
+
+.auth-login-panel form {
+  display: grid;
+  gap: 16px;
+}
+
+.auth-login-panel label {
+  color: #344054;
+  display: grid;
+  font-size: 14px;
+  gap: 7px;
+}
+
+.auth-login-panel input {
+  border: 1px solid #cdd6e3;
+  border-radius: 10px;
+  font: inherit;
+  padding: 12px 13px;
+}
+
+.auth-login-panel input:focus {
+  border-color: #2865c7;
+  box-shadow: 0 0 0 3px rgba(40, 101, 199, 0.14);
+  outline: none;
+}
+
+.auth-login-error {
+  color: #b42318;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.auth-login-submit {
+  align-items: center;
+  background: #1f5fbf;
+  border: 0;
+  border-radius: 10px;
+  color: white;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 8px;
+  justify-content: center;
+  padding: 12px 16px;
+}
+
+.auth-login-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.auth-session-bar {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #e2e7ef;
+  border-radius: 999px;
+  box-shadow: 0 8px 28px rgba(19, 35, 58, 0.1);
+  display: flex;
+  gap: 14px;
+  padding: 7px 10px 7px 13px;
+  position: fixed;
+  right: 18px;
+  top: 14px;
+  z-index: 100;
+}
+
+.auth-session-bar span,
+.auth-session-bar button {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.auth-session-bar span {
+  color: #4a5668;
+  font-size: 13px;
+}
+
+.auth-session-bar button {
+  background: transparent;
+  border: 0;
+  color: #1f5fbf;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 4px 2px;
+}
+
+@media (max-width: 560px) {
+  .auth-login-panel {
+    padding: 24px;
+  }
+
+  .auth-session-bar {
+    left: 14px;
+    right: 14px;
+    justify-content: space-between;
+    top: 10px;
+  }
+}
+
+/* Linear-inspired workspace baseline: quiet surfaces, compact hierarchy, and shared states. */
+button,
+a,
+input,
+select,
+textarea {
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid rgba(94, 106, 210, 0.46);
+  outline-offset: 2px;
+}
+
+.home-shell {
+  background: var(--app-background);
+  gap: 20px;
+  padding: 40px 24px;
+}
+
+.home-grid {
+  gap: 14px;
+  max-width: 940px;
+}
+
+.home-module {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgba(31, 35, 41, 0.05);
+  padding: 24px;
+}
+
+.home-module::before {
+  background: transparent;
+}
+
+.home-module[href]:hover,
+button.home-module:hover {
+  border-color: var(--app-border-strong);
+  box-shadow: 0 14px 34px rgba(31, 35, 41, 0.09);
+  transform: translateY(-2px);
+}
+
+.module-icon {
+  background: var(--app-surface-muted);
+  border: 1px solid var(--app-border);
+  color: var(--app-text-muted);
+  height: 42px;
+  width: 42px;
+}
+
+.module-label {
+  color: var(--app-text);
+  font-size: clamp(28px, 4.4vw, 40px);
+  font-weight: 650;
+}
+
+.module-value {
+  color: var(--app-text);
+  font-size: clamp(24px, 3.2vw, 32px);
+  font-weight: 600;
+}
+
+.home-module-valuation {
+  padding: 24px;
+}
+
+.valuation-coin-icon {
+  background: #f6cf63;
+  border-color: #e5b63e;
+  box-shadow: 0 7px 16px rgba(181, 126, 10, 0.14);
+}
+
+.valuation-shortcut[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px rgba(94, 106, 210, 0.22);
+}
+
+.page-shell,
+.ordering-page,
+.wine-cellar-page {
+  background: var(--app-background);
+}
+
+.page-shell {
+  gap: 18px;
+  justify-content: flex-start;
+  padding: 28px 24px 48px;
+}
+
+.page-panel,
+.purchasing-page-panel,
+.wine-cellar-header,
+.wine-cellar-editor,
+.wine-cellar-workspace,
+.wine-cellar-history {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(31, 35, 41, 0.05);
+}
+
+.page-panel {
+  width: min(1120px, 100%);
+}
+
+.page-panel h1,
+.purchasing-page-panel h1,
+.ordering-page-header h1,
+.wine-cellar-header h1 {
+  color: var(--app-text);
+  font-weight: 650;
+}
+
+.back-link,
+.purchasing-back-link,
+.ordering-page-header a {
+  border-color: var(--app-border);
+  border-radius: 8px;
+  color: var(--app-accent);
+  font-weight: 600;
+  padding: 8px 11px;
+}
+
+.back-link:hover,
+.purchasing-back-link:hover,
+.ordering-page-header a:hover {
+  background: var(--app-accent-soft);
+  border-color: #cfd4ff;
+  text-decoration: none;
+}
+
+.search-panel,
+.valuation-panel,
+.cloud-sync-panel {
+  padding: 28px;
+}
+
+.search-input,
+.invoice-search-field input,
+.ordering-product-search input,
+.ordering-toolbar input,
+.purchasing-page-panel input,
+.purchasing-page-panel select,
+.purchasing-page-panel textarea {
+  border-color: var(--app-border-strong);
+  border-radius: 8px;
+}
+
+.search-input:focus,
+.invoice-search-field input:focus,
+.ordering-product-search input:focus,
+.ordering-toolbar input:focus,
+.purchasing-page-panel input:focus,
+.purchasing-page-panel select:focus,
+.purchasing-page-panel textarea:focus {
+  border-color: var(--app-accent);
+  box-shadow: 0 0 0 3px rgba(94, 106, 210, 0.13);
+  outline: none;
+}
+
+.result-card,
+.cloud-sync-card,
+.inventory-table,
+.freezer-map,
+.purchasing-hub > button,
+.purchase-review-row,
+.ordering-product-search,
+.ordering-group {
+  border-color: var(--app-border);
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.result-card:hover,
+.cloud-sync-card:hover,
+.purchasing-hub > button:hover {
+  border-color: var(--app-border-strong);
+  box-shadow: 0 8px 22px rgba(31, 35, 41, 0.06);
+  transform: translateY(-1px);
+}
+
+.purchasing-page-shell {
+  max-width: 1120px;
+  padding: 28px 24px 48px;
+}
+
+.purchasing-page-panel {
+  padding: 28px;
+}
+
+.purchasing-page-eyebrow,
+.search-label,
+.inventory-list-header small,
+.ordering-page-header p {
+  color: var(--app-text-muted);
+}
+
+.purchasing-hub > button {
+  background: var(--app-surface-muted);
+  min-height: 112px;
+}
+
+.purchasing-hub > button:first-child {
+  background: var(--app-accent-soft);
+  border-color: #cfd4ff;
+  color: #3740a2;
+}
+
+.purchasing-primary-action,
+.ordering-primary,
+.ordering-ordered-button,
+.save-entry-button,
+.confirm-match-button {
+  background: var(--app-accent) !important;
+  border-color: var(--app-accent) !important;
+}
+
+.ordering-page {
+  color: var(--app-text);
+  padding-top: 28px;
+}
+
+.ordering-product-search {
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 26px rgba(31, 35, 41, 0.07);
+}
+
+.ordering-group {
+  border-left-width: 3px;
+}
+
+.ordering-group-toggle,
+.ordering-item-name strong,
+.purchase-review-heading h2,
+.inventory-list-header h2 {
+  color: var(--app-text);
+}
+
+.ordering-dialog,
+.purchase-image-dialog,
+.delete-confirm-dialog,
+.match-panel {
+  border-color: var(--app-border);
+  border-radius: 12px;
+  box-shadow: 0 20px 56px rgba(31, 35, 41, 0.18);
+}
+
+.wine-cellar-shell {
+  --wc-blue: var(--app-accent);
+  --wc-ink: var(--app-text);
+  --wc-border: var(--app-border);
+  max-width: 1120px;
+  padding: 28px 24px 48px;
+}
+
+.wine-cellar-header {
+  box-shadow: none;
+}
+
+.wine-cellar-shell button {
+  background: var(--app-accent);
+  border-radius: 8px;
+}
+
+.wine-cellar-summary-card,
+.wine-cellar-position-card,
+.wine-cellar-rack {
+  border-color: var(--app-border);
+  border-radius: 10px;
+}
+
+.auth-session-bar {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: var(--app-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(31, 35, 41, 0.08);
+}
+
+@media (max-width: 720px) {
+  .home-shell {
+    padding: 20px 14px 32px;
+  }
+
+  .home-grid {
+    gap: 10px;
+  }
+
+  .home-module,
+  .home-module-valuation {
+    border-radius: 11px;
+    padding: 16px;
+  }
+
+  .module-label {
+    font-size: clamp(23px, 8vw, 32px);
+  }
+
+  .page-shell,
+  .purchasing-page-shell {
+    padding: 18px 12px 32px;
+  }
+
+  .page-panel,
+  .purchasing-page-panel,
+  .search-panel,
+  .valuation-panel,
+  .cloud-sync-panel {
+    padding: 18px;
+  }
+}
+
+/* Shared workspace shell for task pages. The home screen stays intentionally minimal. */
+.app-workspace {
+  background: var(--app-background);
+  min-height: 100vh;
+}
+
+.app-sidebar {
+  background: #fbfbfc;
+  border-right: 1px solid var(--app-border);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  inset: 0 auto 0 0;
+  overflow-y: auto;
+  padding: 16px 12px 14px;
+  position: fixed;
+  width: 232px;
+  z-index: 40;
+}
+
+.app-brand {
+  align-items: center;
+  border-radius: 10px;
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 6px 8px;
+  text-decoration: none;
+}
+
+.app-brand:hover {
+  background: var(--app-surface-muted);
+}
+
+.app-brand-mark {
+  align-items: center;
+  background: #1f2329;
+  border-radius: 9px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 800;
+  height: 34px;
+  justify-content: center;
+  letter-spacing: 0.02em;
+  width: 34px;
+}
+
+.app-brand-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.app-brand-copy strong {
+  color: var(--app-text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.app-brand-copy small {
+  color: var(--app-text-muted);
+  font-size: 11px;
+}
+
+.app-sidebar-section-label {
+  color: #8a909b;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  padding: 8px 10px 4px;
+  text-transform: uppercase;
+}
+
+.app-sidebar-section-label-storage {
+  margin-top: 10px;
+}
+
+.app-sidebar-nav {
+  display: grid;
+  gap: 2px;
+}
+
+.app-sidebar-link {
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #66707f;
+  display: flex;
+  font-size: 13px;
+  font-weight: 560;
+  gap: 10px;
+  min-height: 36px;
+  padding: 8px 10px;
+  text-decoration: none;
+}
+
+.app-sidebar-link:hover {
+  background: var(--app-surface-muted);
+  color: var(--app-text);
+}
+
+.app-sidebar-link-active {
+  background: var(--app-accent-soft);
+  border-color: #dfe2ff;
+  color: #4149ac;
+  font-weight: 700;
+}
+
+.app-sidebar-link-secondary {
+  margin-top: 8px;
+}
+
+.app-sidebar-footer {
+  align-items: center;
+  border-top: 1px solid var(--app-border);
+  color: var(--app-text-muted);
+  display: flex;
+  font-size: 11px;
+  gap: 8px;
+  margin-top: auto;
+  padding: 14px 10px 0;
+}
+
+.app-sidebar-status-dot {
+  background: #26a269;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(38, 162, 105, 0.12);
+  height: 7px;
+  width: 7px;
+}
+
+.app-workspace-main {
+  margin-left: 232px;
+  min-height: 100vh;
+  min-width: 0;
+}
+
+.app-workspace-topbar {
+  align-items: center;
+  backdrop-filter: blur(14px);
+  background: rgba(247, 248, 250, 0.9);
+  border-bottom: 1px solid rgba(228, 231, 236, 0.9);
+  display: flex;
+  justify-content: space-between;
+  min-height: 60px;
+  padding: 10px clamp(18px, 4vw, 46px);
+  position: sticky;
+  top: 0;
+  z-index: 35;
+}
+
+.app-breadcrumb {
+  align-items: center;
+  color: #969ca8;
+  display: flex;
+  font-size: 12px;
+  gap: 8px;
+}
+
+.app-breadcrumb strong {
+  color: var(--app-text);
+  font-weight: 650;
+}
+
+.app-topbar-home {
+  border: 1px solid var(--app-border);
+  border-radius: 7px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  padding: 6px 9px;
+  text-decoration: none;
+}
+
+.app-topbar-home:hover {
+  background: var(--app-surface);
+  border-color: var(--app-border-strong);
+  color: var(--app-text);
+}
+
+.app-workspace .page-shell {
+  min-height: calc(100vh - 60px);
+  padding: 24px clamp(18px, 4vw, 46px) 48px;
+}
+
+.app-workspace .page-shell > .back-link,
+.app-workspace .purchasing-back-link,
+.app-workspace .ordering-page-header > a {
+  display: none;
+}
+
+.app-workspace .ordering-page {
+  min-height: calc(100vh - 60px);
+  padding: 24px clamp(18px, 4vw, 46px) 60px;
+}
+
+.app-workspace .purchasing-page-shell {
+  max-width: none;
+  padding: 24px clamp(18px, 4vw, 46px) 48px;
+}
+
+.app-workspace .wine-cellar-page {
+  min-height: calc(100vh - 60px);
+  padding: 24px clamp(18px, 4vw, 46px) 48px;
+}
+
+@media (max-width: 800px) {
+  .app-sidebar {
+    align-items: center;
+    flex-direction: row;
+    height: auto;
+    inset: auto 0 auto 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 9px 10px;
+    position: sticky;
+    width: 100%;
+  }
+
+  .app-brand {
+    flex: 0 0 auto;
+    margin: 0 5px 0 0;
+    padding: 3px 5px;
+  }
+
+  .app-brand-mark {
+    height: 30px;
+    width: 30px;
+  }
+
+  .app-brand-copy small,
+  .app-sidebar-section-label,
+  .app-sidebar-footer {
+    display: none;
+  }
+
+  .app-sidebar-nav {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 2px;
+  }
+
+  .app-sidebar-link {
+    flex: 0 0 auto;
+    min-height: 34px;
+    padding: 7px 9px;
+    white-space: nowrap;
+  }
+
+  .app-sidebar-link-secondary {
+    margin: 0;
+  }
+
+  .app-workspace-main {
+    margin-left: 0;
+  }
+
+  .app-workspace-topbar {
+    min-height: 50px;
+    padding: 8px 14px;
+  }
+
+  .app-workspace .page-shell,
+  .app-workspace .ordering-page,
+  .app-workspace .purchasing-page-shell,
+  .app-workspace .wine-cellar-page {
+    min-height: calc(100vh - 110px);
+    padding-left: 12px;
+    padding-right: 12px;
+  }
 }
 
 a {
@@ -50,8 +803,8 @@ button {
 .home-grid {
   display: grid;
   gap: 22px;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  width: min(100%, 840px);
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  width: min(100%, 720px);
 }
 
 .area-module-wrap {
@@ -279,8 +1032,9 @@ button.home-module:focus-visible,
 }
 
 .home-module-valuation .module-label {
-  font-size: clamp(22px, 3vw, 28px);
-  white-space: nowrap;
+  font-size: 22px;
+  line-height: 1.08;
+  white-space: normal;
 }
 
 .home-module-valuation {
@@ -388,6 +1142,28 @@ button.home-module:focus-visible,
   justify-content: center;
   min-height: 100vh;
   padding: 32px;
+}
+
+.wine-cellar-page {
+  background: #fbfbfd;
+  min-height: 100vh;
+  padding: 28px 32px 42px;
+}
+
+.wine-cellar-page > .back-link {
+  display: inline-flex;
+  margin: 0 auto 12px;
+}
+
+.wine-cellar-loading,
+.wine-cellar-page-error {
+  margin: 42px auto;
+  max-width: 760px;
+  text-align: center;
+}
+
+.wine-cellar-page-error {
+  color: #a33127;
 }
 
 .back-link {
@@ -1694,7 +2470,7 @@ button.home-module:focus-visible,
 }
 
 .cloud-sync-actions button:last-child {
-  background: #7c3aed;
+  background: #1f2937;
 }
 
 .cloud-sync-note {
@@ -1716,6 +2492,10 @@ button.home-module:focus-visible,
 }
 
 @media (max-width: 760px) {
+  .home-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .result-card {
     grid-template-columns: 1fr;
   }
@@ -1887,6 +2667,39 @@ button.home-module:focus-visible,
     padding: 18px;
   }
 
+  .home-module-valuation {
+    aspect-ratio: auto;
+    grid-column: 1 / -1;
+    justify-self: center;
+    min-height: 170px;
+    padding: 18px;
+    width: calc(50% - 7px);
+  }
+
+  .home-module-valuation .valuation-coin-icon {
+    height: 40px;
+    width: 40px;
+  }
+
+  .home-module-valuation .valuation-icon-stack {
+    gap: 5px;
+  }
+
+  .home-module-valuation .valuation-shortcut {
+    height: 24px;
+    width: 24px;
+  }
+
+  .home-module-valuation .module-label {
+    font-size: 20px;
+    line-height: 1.08;
+    white-space: normal;
+  }
+
+  .home-module-valuation .module-value {
+    font-size: 20px;
+  }
+
   .module-icon {
     height: 44px;
     width: 44px;
@@ -1894,6 +2707,10 @@ button.home-module:focus-visible,
 
   .page-shell {
     padding: 20px;
+  }
+
+  .wine-cellar-page {
+    padding: 20px 12px 32px;
   }
 
   .search-panel,

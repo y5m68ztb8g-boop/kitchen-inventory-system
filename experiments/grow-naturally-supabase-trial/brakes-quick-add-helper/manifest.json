@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Tintohotel Brakes Quick Add Helper",
+  "version": "1.0.0",
+  "description": "在 Brakes 页面显示 Tintohotel 当前待下单商品编码和数量。",
+  "permissions": ["activeTab", "storage", "tabs"],
+  "host_permissions": ["http://127.0.0.1:5173/*", "http://127.0.0.1:5174/*", "https://www.brake.co.uk/*"],
+  "background": { "service_worker": "service-worker.js" },
+  "action": { "default_title": "显示 Brakes 下单清单" },
+  "commands": {
+    "toggle-order-helper": {
+      "suggested_key": { "default": "Ctrl+Shift+Y", "mac": "Command+Shift+Y" },
+      "description": "显示或隐藏 Brakes 下单清单"
+    }
+  },
+  "content_scripts": [{ "matches": ["https://www.brake.co.uk/*"], "js": ["content.js"], "run_at": "document_idle" }]
+}

@@ -1,0 +1,9 @@
+identifier,title,priority,state,area,description,acceptance
+TST-01,Unify application visual tokens,P1,In progress,Design system,Create one neutral workspace palette with semantic warehouse accents and shared controls,"All major pages use shared background border text focus and button rules"
+TST-02,Improve home workspace hierarchy,P1,Ready,Home,Keep the home page simple while making the next action and module states clearer,"Search area AI intake ordering and valuation remain obvious at desktop and tablet widths"
+TST-03,Standardize inventory tables and rack controls,P1,Ready,Inventory,Make freezer dry store chiller and drinks views scan consistently,"Headers rows filters actions and empty states align across inventory pages"
+TST-04,Reduce ordering visual friction,P1,Ready,Ordering,Make product search PO entry supplier groups and validation easier to scan,"Search stays visible, errors are prominent, and supplier actions have one clear primary button"
+TST-05,Compact AI intake review,P1,Ready,AI intake,Keep recognition review focused on product matching and unresolved rows,"Low-confidence and unmatched rows are obvious without making each row unnecessarily tall"
+TST-06,Make cloud sync status legible,P2,Ready,Cloud sync,Show local cloud and auto-sync status as a compact operational summary,"Status and next action are understandable without reading implementation details"
+TST-07,Add responsive visual regression checks,P2,Backlog,Quality,Capture home freezer AI intake and ordering at desktop and tablet widths,"Screenshots or browser checks cover the primary layouts after visual changes"
+TST-08,Create Linear workspace integration,P3,Backlog,Project ops,Connect this repository to a real Linear workspace when a Linear connector or workspace access is available,"Issues can be created and updated from the project without a manual copy step"

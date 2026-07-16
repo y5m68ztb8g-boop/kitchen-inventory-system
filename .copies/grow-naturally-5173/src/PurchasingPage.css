@@ -1,0 +1,366 @@
+.purchasing-page-shell {
+  box-sizing: border-box;
+  margin: 0 auto;
+  max-width: 1180px;
+  padding: 24px 16px 48px;
+}
+
+.purchasing-page-panel {
+  background: #fff;
+  border: 1px solid #d7ded4;
+  padding: 24px;
+}
+
+.purchasing-back-link {
+  display: inline-flex;
+  margin-bottom: 18px;
+}
+
+.purchasing-page-eyebrow {
+  color: #63705f;
+  margin: 0 0 4px;
+}
+
+.purchasing-page-panel h1 {
+  font-size: 30px;
+  letter-spacing: 0;
+  margin: 0 0 24px;
+}
+
+.purchasing-page-panel h1,
+.purchasing-page-panel h2,
+.purchasing-page-panel h3,
+.purchasing-page-panel p {
+  overflow-wrap: anywhere;
+}
+
+.purchasing-file-input {
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  position: absolute;
+  width: 1px;
+}
+
+.purchasing-hub {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.purchasing-hub > button {
+  align-items: center;
+  background: #f8faf7;
+  border: 1px solid #cfd8cc;
+  border-radius: 6px;
+  color: #1d2b1f;
+  display: flex;
+  gap: 16px;
+  min-height: 104px;
+  padding: 20px;
+  text-align: left;
+}
+
+.purchasing-hub > button:first-child {
+  border-color: #9ab0a0;
+}
+
+.purchasing-hub > button span {
+  display: grid;
+  gap: 5px;
+}
+
+.purchasing-hub strong {
+  font-size: 18px;
+  letter-spacing: 0;
+}
+
+.purchasing-hub small {
+  color: #657063;
+  font-size: 13px;
+}
+
+.purchasing-primary-action {
+  background: #245d35;
+  border-color: #245d35;
+  color: #fff;
+  min-height: 44px;
+}
+
+.purchasing-preview-state {
+  display: grid;
+  gap: 16px;
+}
+
+.purchasing-preview-image {
+  border: 1px solid #d7ded4;
+  max-height: 480px;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.purchasing-file-preview {
+  align-items: center;
+  background: #f7f9f6;
+  border: 1px solid #d2dad0;
+  display: flex;
+  gap: 16px;
+  min-height: 110px;
+  padding: 18px;
+}
+
+.purchasing-file-preview div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.purchasing-file-preview strong {
+  overflow-wrap: anywhere;
+}
+
+.purchasing-file-preview span {
+  color: #63705f;
+  font-size: 13px;
+}
+
+.purchasing-preview-actions,
+.purchase-review-actions,
+.purchase-review-heading,
+.purchase-image-dialog-heading,
+.purchase-review-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.purchasing-preview-actions button,
+.purchase-review-actions button,
+.purchase-review-meta button,
+.purchasing-source-button,
+.purchase-image-dialog button,
+.purchase-error button {
+  min-height: 44px;
+}
+
+.purchasing-icon-button {
+  align-items: center;
+  display: inline-flex;
+  height: 44px;
+  justify-content: center;
+  padding: 0;
+  width: 44px;
+}
+
+.purchasing-preview-source-link {
+  align-items: center;
+  display: inline-flex;
+  min-height: 44px;
+  width: fit-content;
+}
+
+.purchase-review {
+  margin-top: 4px;
+}
+
+.purchase-review-heading h2,
+.purchase-image-dialog h2 {
+  margin: 0;
+}
+
+.purchase-review-heading p,
+.purchase-review-note {
+  color: #5e695c;
+  margin: 6px 0 0;
+}
+
+.purchase-review-warning {
+  background: #fff7df;
+  border-left: 3px solid #bf7900;
+  color: #6b4a0c;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+}
+
+.purchasing-source-button,
+.purchase-review-actions button {
+  align-items: center;
+  display: inline-flex;
+  gap: 7px;
+}
+
+.purchase-review-table {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.purchase-review-row {
+  border: 1px solid #d6ddd3;
+  border-radius: 6px;
+  padding: 14px;
+}
+
+.purchase-review-row-low-confidence {
+  background: #fff7df;
+  border-color: #d8a132;
+  box-shadow: inset 3px 0 #bf7900;
+}
+
+.purchase-review-fields {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(100px, 0.8fr) minmax(190px, 1.5fr) minmax(88px, 0.55fr) minmax(90px, 0.6fr) minmax(150px, 1fr);
+}
+
+.purchase-review-fields label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.purchase-review-fields label > span {
+  color: #566253;
+  font-size: 12px;
+}
+
+.purchase-review-fields input {
+  box-sizing: border-box;
+  min-height: 40px;
+  min-width: 0;
+  width: 100%;
+}
+
+.purchase-review-meta {
+  border-top: 1px solid #e0e5de;
+  justify-content: flex-start;
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.purchase-review-check {
+  align-items: center;
+  display: inline-flex;
+  gap: 7px;
+}
+
+.purchase-review-check input {
+  block-size: 20px;
+  inline-size: 20px;
+}
+
+.purchase-match-state {
+  background: #f1f3f0;
+  color: #6a7168;
+  font-size: 12px;
+  padding: 5px 8px;
+}
+
+.purchase-match-state-ok {
+  background: #e4f0e5;
+  color: #2b5934;
+}
+
+.purchase-review-actions {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.purchasing-status-message {
+  background: #edf5ed;
+  border-left: 3px solid #377547;
+  color: #254b2d;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+}
+
+.purchase-error {
+  background: #fff0ed;
+  border-left: 3px solid #b32a1d;
+  padding: 12px;
+}
+
+.purchase-error p {
+  margin-top: 0;
+}
+
+.purchase-image-dialog-backdrop {
+  align-items: center;
+  background: rgb(21 31 20 / 58%);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 16px;
+  position: fixed;
+  z-index: 20;
+}
+
+.purchase-image-dialog {
+  background: #fff;
+  max-height: calc(100vh - 32px);
+  max-width: 980px;
+  overflow: auto;
+  padding: 18px;
+  width: min(100%, 980px);
+}
+
+.purchase-image-dialog img,
+.purchase-image-dialog iframe {
+  border: 1px solid #d6ddd3;
+  display: block;
+  height: min(72vh, 760px);
+  margin-top: 16px;
+  object-fit: contain;
+  width: 100%;
+}
+
+@media (max-width: 800px) {
+  .purchasing-page-shell {
+    padding: 14px 10px 30px;
+  }
+
+  .purchasing-page-panel {
+    padding: 16px;
+  }
+
+  .purchasing-hub {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .purchase-review-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .purchase-product-field,
+  .purchase-review-fields label:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .purchase-review-actions {
+    justify-content: stretch;
+  }
+
+  .purchase-review-actions button {
+    flex: 1 1 150px;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 440px) {
+  .purchase-review-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .purchase-product-field,
+  .purchase-review-fields label:last-child {
+    grid-column: auto;
+  }
+
+  .purchasing-preview-actions button,
+  .purchasing-source-button {
+    width: 100%;
+  }
+}
